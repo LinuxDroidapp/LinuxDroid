@@ -99,7 +99,7 @@ LinuxDroid isolates and consumes all core native and Linux components directly f
 
 | Submodule | Repository | Pinned Revision | Description |
 | :--- | :--- | :--- | :--- |
-| `vendor/proot` | [LinuxDroidapp/proot](https://github.com/LinuxDroidapp/proot) | `378aefaac7b62944243fc8d10fc78ba2a5372844` | Hardened PRoot execution engine with Bionic ptrace workarounds & TBI handling |
+| `vendor/proot` | [LinuxDroidapp/proot](https://github.com/LinuxDroidapp/proot) | `caadcae0e7697ec29f02e231a3a88866561aacd0` | Hardened PRoot execution engine with Bionic ptrace workarounds & TBI handling |
 | `vendor/LDDM` | [LinuxDroidapp/LDDM](https://github.com/LinuxDroidapp/LDDM) | `aa6c3d38f874244bcd60162889a914637e4ddf46` | LinuxDroid Display Manager & session coordinator |
 | `vendor/LDDE` | [LinuxDroidapp/LDDE](https://github.com/LinuxDroidapp/LDDE) | `9ee575e963d6d1ff4086fc16fb119daf6ead6db2` | LinuxDroid Desktop Environment graphical workspace |
 | `vendor/wayland` | [LinuxDroidapp/wayland](https://github.com/LinuxDroidapp/wayland) | `381af21cf84f13be0ca24aed756a9cded3290d49` | Core Wayland IPC server/client libraries |
