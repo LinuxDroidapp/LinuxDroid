@@ -28,6 +28,7 @@ class RuntimeLogExporter(
     private val diagnosticsManager: DiagnosticsManager,
     private val detector: FailureLogDetector = FailureLogDetector(),
     private val reportExporter: FailureReportExporter = FailureReportExporter(),
+    private val provenanceManager: ComponentProvenanceManager = ComponentProvenanceManager(),
 ) {
     private val log = LinuxDroidLogger(LogSubsystem.DIAGNOSTICS)
 
@@ -138,6 +139,11 @@ class RuntimeLogExporter(
         reportBuilder.appendLine("LINUXDROID RUNTIME DIAGNOSTIC & LOG REPORT")
         reportBuilder.appendLine("Generated: $timestamp")
         reportBuilder.appendLine("================================================================================")
+        reportBuilder.appendLine()
+
+        // 0. LINUXDROID COMPONENTS PROVENANCE
+        reportBuilder.appendLine("--- [0. LINUXDROID COMPONENTS PROVENANCE] ---")
+        reportBuilder.appendLine(provenanceManager.formatComponentsBlock())
         reportBuilder.appendLine()
 
         // 1. HOST DEVICE INFORMATION

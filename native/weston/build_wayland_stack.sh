@@ -26,8 +26,8 @@ if [[ -z "$NDK_ROOT" || ! -d "$NDK_ROOT" ]]; then
         "${ANDROID_HOME:-/nonexistent}/ndk/29.0.14206865" \
         "$HOME/Android/Sdk/ndk/30.0.16138531" \
         "$HOME/Android/Sdk/ndk/29.0.14206865" \
-        $(ls -d "${ANDROID_HOME:-/nonexistent}/ndk/"* 2>/dev/null | tail -n1) \
-        $(ls -d "$HOME/Android/Sdk/ndk/"* 2>/dev/null | tail -n1)
+        $(ls -d "${ANDROID_HOME:-/nonexistent}/ndk/"* 2>/dev/null | sort -V | tail -n1) \
+        $(ls -d "$HOME/Android/Sdk/ndk/"* 2>/dev/null | sort -V | tail -n1)
     do
         if [[ -n "$candidate" && -d "$candidate" ]]; then
             NDK_ROOT="$candidate"
@@ -94,6 +94,48 @@ export PKG_CONFIG_PATH="$HOST_TOOLS_DIR/lib/x86_64-linux-gnu/pkgconfig:${PKG_CON
 export PKG_CONFIG_PATH_FOR_BUILD="$HOST_TOOLS_DIR/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH_FOR_BUILD:-}"
 export PATH="$HOST_TOOLS_DIR/bin:$PATH"
 
+VENDOR_DIR="$PROJECT_ROOT/vendor"
+VENDOR_WAYLAND="$VENDOR_DIR/wayland"
+VENDOR_WAYLAND_PROTOCOLS="$VENDOR_DIR/wayland-protocols"
+VENDOR_PIXMAN="$VENDOR_DIR/pixman"
+VENDOR_WESTON="$VENDOR_DIR/weston"
+
+check_pinned_submodule() {
+    local name="$1"
+    local path="$2"
+    local expected_commit="$3"
+    [[ -d "$path/.git" || -f "$path/.git" ]] || die "Submodule $name not found at $path. Run 'git submodule update --init --recursive'."
+    local actual_commit
+    actual_commit="$(git -C "$path" rev-parse HEAD)"
+    if [[ "$actual_commit" != "$expected_commit"* ]]; then
+        die "Submodule $name commit mismatch: expected $expected_commit, got $actual_commit"
+    fi
+    info "Submodule $name verified at $actual_commit"
+}
+
+sync_vendor_to_src() {
+    local name="$1"
+    local vendor_path="$2"
+    local target_dir="$SRC_DIR/$name"
+    info "Staging submodule $name from $vendor_path to $target_dir..."
+    rm -rf "$target_dir"
+    mkdir -p "$target_dir"
+    cp -a "$vendor_path"/* "$target_dir/"
+    if [[ -d "$vendor_path/.git" || -f "$vendor_path/.git" ]]; then
+        cp -a "$vendor_path"/.git "$target_dir/" 2>/dev/null || true
+    fi
+}
+
+WAYLAND_COMMIT="381af21cf84f13be0ca24aed756a9cded3290d49"
+PROTOCOLS_COMMIT="afb614d5fcbd02d261a6ae91920aa91cf3915a8a"
+PIXMAN_COMMIT="cc03b56c7b2b2e06199bb9b115af55f5b42b12ba"
+WESTON_COMMIT="9669073fe8f411ef3e9f40a36d0ec9aa68362fa2"
+
+check_pinned_submodule "wayland" "$VENDOR_WAYLAND" "$WAYLAND_COMMIT"
+check_pinned_submodule "wayland-protocols" "$VENDOR_WAYLAND_PROTOCOLS" "$PROTOCOLS_COMMIT"
+check_pinned_submodule "pixman" "$VENDOR_PIXMAN" "$PIXMAN_COMMIT"
+check_pinned_submodule "weston" "$VENDOR_WESTON" "$WESTON_COMMIT"
+
 fetch_repo() {
     local name="$1"
     local url="$2"
@@ -112,9 +154,8 @@ fetch_repo() {
     [[ "$actual_commit" == "$commit"* ]] || die "$name commit mismatch: expected $commit, got $actual_commit"
 }
 
-# --- Step A: Wayland & Host Scanner ---
-WAYLAND_COMMIT="87cc8a8728a923fc57938faa81ba0e74f34ecdc7"
-fetch_repo "wayland" "https://github.com/InfidelRahul/wayland.git" "$WAYLAND_COMMIT"
+# --- Step A: Wayland & Host Scanner (Submodule: vendor/wayland) ---
+sync_vendor_to_src "wayland" "$VENDOR_WAYLAND"
 
 info "Building host wayland-scanner..."
 rm -rf "$SRC_DIR/wayland/build-host"
@@ -168,9 +209,8 @@ meson setup "$SRC_DIR/wayland/build-android" "$SRC_DIR/wayland" \
     -Dscanner=false -Dlibraries=true -Ddocumentation=false -Ddtd_validation=false -Dtests=false
 ninja -C "$SRC_DIR/wayland/build-android" install
 
-# --- Step D: wayland-protocols ---
-PROTOCOLS_COMMIT="ee78491a237eaff9389a0ccf8680521d074407d3"
-fetch_repo "wayland-protocols" "https://github.com/InfidelRahul/wayland-protocols.git" "$PROTOCOLS_COMMIT"
+# --- Step D: wayland-protocols (Submodule: vendor/wayland-protocols) ---
+sync_vendor_to_src "wayland-protocols" "$VENDOR_WAYLAND_PROTOCOLS"
 
 info "Installing wayland-protocols..."
 rm -rf "$SRC_DIR/wayland-protocols/build-android"
@@ -180,21 +220,12 @@ meson setup "$SRC_DIR/wayland-protocols/build-android" "$SRC_DIR/wayland-protoco
     -Dtests=false
 ninja -C "$SRC_DIR/wayland-protocols/build-android" install
 
-# --- Step E: Pixman (with NEON, Always latest main branch) ---
-PIXMAN_REPO="https://github.com/InfidelRahul/pixman.git"
-PIXMAN_BRANCH="main"
+# --- Step E: Pixman (Built from pinned submodule vendor/pixman with NEON) ---
+PIXMAN_REPO="https://github.com/LinuxDroidapp/pixman.git"
 PIXMAN_DIR="$SRC_DIR/pixman"
-
-if [[ ! -d "$PIXMAN_DIR/.git" ]]; then
-    info "Cloning pixman from $PIXMAN_REPO ($PIXMAN_BRANCH)..."
-    git clone --branch "$PIXMAN_BRANCH" "$PIXMAN_REPO" "$PIXMAN_DIR"
-fi
-info "Fetching latest $PIXMAN_BRANCH for pixman from $PIXMAN_REPO..."
-git -C "$PIXMAN_DIR" remote set-url origin "$PIXMAN_REPO" || true
-git -C "$PIXMAN_DIR" fetch origin "$PIXMAN_BRANCH"
-git -C "$PIXMAN_DIR" checkout -f "origin/$PIXMAN_BRANCH"
-PIXMAN_RESOLVED_SHA="$(git -C "$PIXMAN_DIR" rev-parse HEAD)"
-info "Pixman resolved HEAD commit SHA: $PIXMAN_RESOLVED_SHA (branch: $PIXMAN_BRANCH)"
+sync_vendor_to_src "pixman" "$VENDOR_PIXMAN"
+PIXMAN_RESOLVED_SHA="$PIXMAN_COMMIT"
+info "Pixman resolved commit SHA: $PIXMAN_RESOLVED_SHA"
 
 # Record Pixman build provenance
 PIXMAN_PROVENANCE_FILE="$SCRIPT_DIR/pixman_provenance.json"
@@ -203,10 +234,10 @@ cat << EOF > "$PIXMAN_PROVENANCE_FILE"
   "provenance_schema_version": "1.0.0",
   "component": "pixman",
   "repository": "$PIXMAN_REPO",
-  "requested_ref": "$PIXMAN_BRANCH",
+  "requested_ref": "main",
   "resolved_commit_sha": "$PIXMAN_RESOLVED_SHA",
   "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "build_toolchain": "NDK r29 Clang (Android API 36)",
+  "build_toolchain": "NDK $(basename "$NDK_ROOT") Clang ($(basename "$CLANG_BIN"))",
   "target_abi": "arm64-v8a",
   "target_arch": "aarch64",
   "build_options": [
@@ -271,21 +302,13 @@ meson setup "$LIBDRM_DIR/build-android" "$LIBDRM_DIR" \
     -Dfreedreno=disabled -Dtegra=disabled -Dvc4=disabled -Detnaviv=disabled -Dcairo-tests=disabled -Dman-pages=disabled -Dvalgrind=disabled -Dtests=false
 ninja -C "$LIBDRM_DIR/build-android" install
 
-# --- Step I: Weston / libweston (Always latest main branch) ---
-WESTON_REPO="https://github.com/InfidelRahul/weston.git"
+# --- Step I: Weston / libweston (Built from pinned submodule vendor/weston) ---
+WESTON_REPO="https://github.com/LinuxDroidapp/weston.git"
 WESTON_BRANCH="main"
 WESTON_DIR="$SRC_DIR/weston"
-
-if [[ ! -d "$WESTON_DIR/.git" ]]; then
-    info "Cloning weston from $WESTON_REPO ($WESTON_BRANCH)..."
-    git clone --branch "$WESTON_BRANCH" "$WESTON_REPO" "$WESTON_DIR"
-fi
-info "Fetching latest $WESTON_BRANCH for weston from $WESTON_REPO..."
-git -C "$WESTON_DIR" remote set-url origin "$WESTON_REPO" || true
-git -C "$WESTON_DIR" fetch origin "$WESTON_BRANCH"
-git -C "$WESTON_DIR" checkout -f "origin/$WESTON_BRANCH"
-WESTON_RESOLVED_SHA="$(git -C "$WESTON_DIR" rev-parse HEAD)"
-info "Weston resolved HEAD commit SHA: $WESTON_RESOLVED_SHA (branch: $WESTON_BRANCH)"
+sync_vendor_to_src "weston" "$VENDOR_WESTON"
+WESTON_RESOLVED_SHA="$WESTON_COMMIT"
+info "Weston resolved commit SHA: $WESTON_RESOLVED_SHA"
 
 info "Applying Android Bionic compatibility adjustments to Weston..."
 WESTON_SRC="$WESTON_DIR" python3 - << 'PYINNER'
@@ -581,7 +604,7 @@ cat << EOF > "$PROVENANCE_FILE"
   "resolved_commit_sha": "$WESTON_RESOLVED_SHA",
   "libweston_major": $LIBWESTON_MAJOR,
   "target_abi": "arm64-v8a",
-  "target_api": 35,
+  "target_api": ${API_LEVEL:-36},
   "toolchain": "$TOOLCHAIN_BIN",
   "built_at": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 }

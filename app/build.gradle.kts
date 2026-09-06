@@ -74,7 +74,13 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
-            pickFirsts += "**/libgl-renderer.so"
+            pickFirsts += listOf(
+                "**/libgl-renderer.so",
+                "**/libproot.so",
+                "**/libproot_loader.so",
+                "**/libtalloc.so",
+                "**/libandroid-shmem.so",
+            )
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -121,6 +127,9 @@ dependencies {
 
     // Native modules
     implementation(project(":native:bridge"))
+
+    // Vendor modules
+    implementation(project(":vendor:proot"))
 
     // Linux modules
     implementation(project(":linux:bootstrap"))
@@ -181,6 +190,52 @@ dependencies {
 
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
+}
+
+val syncProotArtifacts = tasks.register("syncProotArtifacts") {
+    group = "distribution"
+    description = "Synchronizes standalone PRoot binaries, loader, MANIFEST, and JNI libs from vendor/proot"
+    dependsOn(":vendor:proot:assembleAndroidDist")
+
+    val vendorDist = rootProject.file("vendor/proot/dist/android/arm64-v8a")
+    val assetsTarget = file("src/main/assets/proot/arm64-v8a")
+    val jniLibsTarget = file("src/main/jniLibs/arm64-v8a")
+
+    inputs.dir(vendorDist).optional()
+    outputs.dirs(assetsTarget, jniLibsTarget)
+
+    doLast {
+        if (!vendorDist.exists()) return@doLast
+        assetsTarget.mkdirs()
+        jniLibsTarget.mkdirs()
+
+        listOf("proot", "loader", "MANIFEST.txt").forEach { name ->
+            val src = File(vendorDist, name)
+            if (src.exists()) {
+                val dst = File(assetsTarget, name)
+                if (!dst.exists() || dst.readBytes().contentEquals(src.readBytes()).not()) {
+                    src.copyTo(dst, overwrite = true)
+                    if (name != "MANIFEST.txt") {
+                        dst.setExecutable(true, false)
+                    }
+                }
+            }
+        }
+
+        listOf("libproot.so", "libproot_loader.so", "libtalloc.so", "libandroid-shmem.so").forEach { name ->
+            val src = File(vendorDist, name)
+            if (src.exists()) {
+                val dst = File(jniLibsTarget, name)
+                if (!dst.exists() || dst.readBytes().contentEquals(src.readBytes()).not()) {
+                    src.copyTo(dst, overwrite = true)
+                }
+            }
+        }
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn(syncProotArtifacts)
 }
 
 

@@ -89,9 +89,25 @@ For graphical workloads, LinuxDroid embeds the official **libweston-17 Wayland c
 | **Presentation Pipeline** | Triple-Buffered `AHardwareBuffer` + `ASurfaceControl` + Sync Fences |
 | **Display Clock / Timing** | Android `AChoreographer` VSync (60 Hz / 90 Hz / 120 Hz dynamic refresh) |
 | **Input Subsystem** | Direct `MotionEvent` / `KeyEvent` → Linux `evdev` translation with coalescing |
-| **Build Toolchain** | OpenJDK 21 • Gradle 9.7.1 • AGP 9.3.2 • Kotlin 2.3.20 • NDK r29 |
+| **Build Toolchain** | OpenJDK 21 • Gradle 9.7.1 • AGP 9.3.2 • Kotlin 2.3.20 • NDK 30 (Clang 23.1.0) |
 
 ---
+
+### 🧩 Core Stack Git Submodules (`vendor/`)
+
+LinuxDroid isolates and consumes all core native and Linux components directly from dedicated repositories under the `LinuxDroidapp` organization, pinned to exact commits:
+
+| Submodule | Repository | Pinned Revision | Description |
+| :--- | :--- | :--- | :--- |
+| `vendor/proot` | [LinuxDroidapp/proot](https://github.com/LinuxDroidapp/proot) | `378aefaac7b62944243fc8d10fc78ba2a5372844` | Hardened PRoot execution engine with Bionic ptrace workarounds & TBI handling |
+| `vendor/LDDM` | [LinuxDroidapp/LDDM](https://github.com/LinuxDroidapp/LDDM) | `aa6c3d38f874244bcd60162889a914637e4ddf46` | LinuxDroid Display Manager & session coordinator |
+| `vendor/LDDE` | [LinuxDroidapp/LDDE](https://github.com/LinuxDroidapp/LDDE) | `9ee575e963d6d1ff4086fc16fb119daf6ead6db2` | LinuxDroid Desktop Environment graphical workspace |
+| `vendor/wayland` | [LinuxDroidapp/wayland](https://github.com/LinuxDroidapp/wayland) | `381af21cf84f13be0ca24aed756a9cded3290d49` | Core Wayland IPC server/client libraries |
+| `vendor/weston` | [LinuxDroidapp/weston](https://github.com/LinuxDroidapp/weston) | `9669073fe8f411ef3e9f40a36d0ec9aa68362fa2` | Embedded libweston compositor & GLES hardware renderer plugin |
+| `vendor/wayland-protocols` | [LinuxDroidapp/wayland-protocols](https://github.com/LinuxDroidapp/wayland-protocols) | `afb614d5fcbd02d261a6ae91920aa91cf3915a8a` | Wayland protocol XML extensions (xdg-shell, linux-dmabuf) |
+| `vendor/pixman` | [LinuxDroidapp/pixman](https://github.com/LinuxDroidapp/pixman) | `cc03b56c7b2b2e06199bb9b115af55f5b42b12ba` | ARM NEON-accelerated pixel manipulation library |
+
+For complete submodule management guidelines and build instructions, see [docs/vendor/submodules.md](docs/vendor/submodules.md).
 
 ## 🏛️ Architecture
 
@@ -240,9 +256,9 @@ Explore our comprehensive technical documentation:
 
 ### Prerequisites
 - **JDK**: OpenJDK 21 (Temurin or SDKMAN).
-- **Android SDK**: Android API 36 (`platforms;android-36`, `build-tools;36.0.0`).
-- **Android NDK**: NDK version `29.0.14206865`.
-- **CMake**: Version `3.22.1`.
+- **Android SDK**: Android API 36 / 37 (`platforms;android-36`, `build-tools;36.0.0`).
+- **Android NDK**: NDK version `30.0.16138531` (NDK 30, Clang 23.1.0).
+- **CMake**: Version `4.4.3`.
 
 ### Quick Build Commands
 
@@ -253,7 +269,7 @@ cd LinuxDroid
 
 # 2. Configure Environment Variables
 export ANDROID_HOME=/path/to/android-sdk
-export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/29.0.14206865
+export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/30.0.16138531
 
 # 3. Run all unit tests across modules
 ./gradlew testDebugUnitTest --no-daemon

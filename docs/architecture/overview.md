@@ -38,19 +38,24 @@ LinuxDroid is **NOT** a VM product, does **NOT** require root/su access, does **
 │ RuntimeAssetsManager · RootfsManager · LaunchPlan      │
 │ Bindings · ProcessLauncher · PtyLauncher               │
 └───────────────────────────┬────────────────────────────┘
-                            │ LinuxDroid_proot contract
 ┌───────────────────────────▼────────────────────────────┐
-│        LinuxDroid_proot (external repository)          │
-│       PRoot native engine · loader · Android fixes     │
+│        LinuxDroid Native & Submodule Stack (vendor/)   │
+│   • vendor/proot (PRoot engine, loader, Android fixes) │
+│   • vendor/LDDM (LinuxDroid Display Manager)           │
+│   • vendor/LDDE (LinuxDroid Desktop Environment)       │
+│   • vendor/wayland (libwayland-server/client/cursor)   │
+│   • vendor/weston (libweston-17, gl-renderer plugin)   │
+│   • vendor/wayland-protocols (wayland protocol specs)  │
+│   • vendor/pixman (ARM NEON optimized pixel pipeline)  │
 └───────────────────────────┬────────────────────────────┘
-                            │ ptrace / syscall interception
+                            │ ptrace / syscall interception & Wayland IPC
 ┌───────────────────────────▼────────────────────────────┐
 │          Persistent Linux rootfs and applications      │
 │          (/bin/sh, apt, dpkg, Debian arm64)            │
 └────────────────────────────────────────────────────────┘
 ```
 
-`LinuxDroid_proot` is a core runtime dependency. LinuxDroid consumes its versioned `proot` and `loader` artifacts through `RuntimeAssetsManager`.
+Core native and Linux stack components are maintained in dedicated repositories under `https://github.com/LinuxDroidapp/*` and consumed as Git submodules in `vendor/`. For detailed submodule specifications and commit pinning guidelines, see [docs/vendor/submodules.md](../vendor/submodules.md).
 
 ## 3. Key Design Tenets
 1. **Unconditional Persistence:** Rootfs directories (`<filesDir>/environments/<id>/rootfs`) are never touched or purged on stop, crash, or application restart.

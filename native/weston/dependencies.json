@@ -6,6 +6,34 @@
   "target_android_api": 36,
   "libweston_major_api": 16,
   "dependencies": {
+    "proot": {
+      "name": "proot",
+      "source_repository": "https://github.com/LinuxDroidapp/proot.git",
+      "upstream_repository": "https://github.com/proot-me/proot.git",
+      "branch": "master",
+      "vendor_path": "vendor/proot",
+      "resolved_commit": "378aefaac7b62944243fc8d10fc78ba2a5372844",
+      "build_system": "cmake",
+      "runtime_library": "libproot.so"
+    },
+    "LDDM": {
+      "name": "LDDM",
+      "source_repository": "https://github.com/LinuxDroidapp/LDDM.git",
+      "branch": "main",
+      "vendor_path": "vendor/LDDM",
+      "resolved_commit": "aa6c3d38f874244bcd60162889a914637e4ddf46",
+      "build_system": "cmake",
+      "runtime_library": null
+    },
+    "LDDE": {
+      "name": "LDDE",
+      "source_repository": "https://github.com/LinuxDroidapp/LDDE.git",
+      "branch": "main",
+      "vendor_path": "vendor/LDDE",
+      "resolved_commit": "9ee575e963d6d1ff4086fc16fb119daf6ead6db2",
+      "build_system": "cmake",
+      "runtime_library": null
+    },
     "libffi": {
       "name": "libffi",
       "source_repository": "https://github.com/libffi/libffi.git",
@@ -20,10 +48,12 @@
     },
     "wayland": {
       "name": "wayland",
-      "source_repository": "https://github.com/InfidelRahul/wayland.git",
+      "source_repository": "https://github.com/LinuxDroidapp/wayland.git",
       "upstream_repository": "https://gitlab.freedesktop.org/wayland/wayland.git",
+      "branch": "main",
       "release": "1.26.0",
-      "resolved_commit": "87cc8a8728a923fc57938faa81ba0e74f34ecdc7",
+      "vendor_path": "vendor/wayland",
+      "resolved_commit": "381af21cf84f13be0ca24aed756a9cded3290d49",
       "build_system": "meson",
       "build_options": [
         "-Dscanner=false",
@@ -32,28 +62,29 @@
         "-Ddtd_validation=false",
         "-Dtests=false"
       ],
-      "runtime_library": "libwayland-server.so",
-      "tag_hash": "5f430e41167dd359b70fb5e9f584ba2dc058e4cc"
+      "runtime_library": "libwayland-server.so"
     },
     "wayland-protocols": {
       "name": "wayland-protocols",
-      "source_repository": "https://github.com/InfidelRahul/wayland-protocols.git",
+      "source_repository": "https://github.com/LinuxDroidapp/wayland-protocols.git",
       "upstream_repository": "https://gitlab.freedesktop.org/wayland/wayland-protocols.git",
+      "branch": "main",
       "release": "1.49",
-      "resolved_commit": "ee78491a237eaff9389a0ccf8680521d074407d3",
+      "vendor_path": "vendor/wayland-protocols",
+      "resolved_commit": "afb614d5fcbd02d261a6ae91920aa91cf3915a8a",
       "build_system": "meson",
       "build_options": [
         "-Dtests=false"
       ],
-      "runtime_library": null,
-      "tag_hash": "a8d65d7f121497ddd0d10f620f4284896ab80aff"
+      "runtime_library": null
     },
     "pixman": {
       "name": "pixman",
-      "source_repository": "https://github.com/InfidelRahul/pixman.git",
+      "source_repository": "https://github.com/LinuxDroidapp/pixman.git",
       "upstream_repository": "https://gitlab.freedesktop.org/pixman/pixman.git",
       "branch": "main",
       "release": "0.46.4",
+      "vendor_path": "vendor/pixman",
       "resolved_commit": "cc03b56c7b2b2e06199bb9b115af55f5b42b12ba",
       "build_system": "meson",
       "build_options": [
@@ -121,10 +152,11 @@
     },
     "weston": {
       "name": "weston",
-      "source_repository": "https://github.com/InfidelRahul/weston.git",
+      "source_repository": "https://github.com/LinuxDroidapp/weston.git",
       "upstream_repository": "https://gitlab.freedesktop.org/wayland/weston.git",
       "branch": "main",
       "release": "main",
+      "vendor_path": "vendor/weston",
       "resolved_commit": "9669073fe8f411ef3e9f40a36d0ec9aa68362fa2",
       "libweston_major": 17,
       "build_system": "meson",

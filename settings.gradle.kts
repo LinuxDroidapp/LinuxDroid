@@ -48,3 +48,8 @@ include(":linux:bootstrap")
 
 // Native modules
 include(":native:bridge")
+
+// Vendor modules
+include(":vendor:proot")
+project(":vendor:proot").projectDir = file("vendor/proot")
+
