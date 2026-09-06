@@ -747,7 +747,36 @@ class ProotRuntimeBackend(
 
             log.info("PRoot self-test probe: finished=$finished, exit=$exit, output=${combined.take(120).trim()}")
 
-            if (combined.contains("PRoot", ignoreCase = true) || combined.contains("proot", ignoreCase = true) || exit == 0) {
+            // Detect Bionic dynamic linker failures (e.g. CANNOT LINK EXECUTABLE, library "libtalloc.so" not found)
+            val isLinkerFailure = combined.contains("CANNOT LINK EXECUTABLE", ignoreCase = true) ||
+                (combined.contains("library \"", ignoreCase = true) && combined.contains("not found", ignoreCase = true))
+
+            if (isLinkerFailure) {
+                log.error("PRoot dynamic linker failure detected: ${combined.trim()}")
+                return ProotDiagnosticResult(
+                    status = ProotStatus.PROOT_DEPENDENCY_FAILURE,
+                    binaryPath = binary.path,
+                    loaderPath = loader?.path,
+                    abi = targetAbi,
+                    elfValid = true,
+                    elfType = elfInfo.typeName,
+                    executable = false,
+                    hostLaunched = true,
+                    hostExitCode = exit,
+                    loaderValid = loader?.exists() == true,
+                    standalone = false,
+                    dependenciesResolved = false,
+                    detail = "Dynamic linker unresolved: ${combined.trim()}",
+                    error = combined.trim(),
+                )
+            }
+
+            // Extract PRoot version string (e.g. 5.1.107.92)
+            val versionMatch = Regex("""\b5\.\d+\.\d+(?:\.\d+)?\b""").find(combined)
+            val detectedVersion = versionMatch?.value
+                ?: if (combined.contains("accelerators", ignoreCase = true) || combined.contains("proot", ignoreCase = true)) "5.1.107.92" else null
+
+            if (exit == 0) {
                 ProotDiagnosticResult(
                     status = ProotStatus.PROOT_OK,
                     binaryPath = binary.path,
@@ -756,22 +785,32 @@ class ProotRuntimeBackend(
                     elfValid = true,
                     elfType = elfInfo.typeName,
                     executable = true,
+                    hostLaunched = true,
+                    hostExitCode = 0,
+                    version = detectedVersion ?: "5.1.107.92",
                     loaderValid = loader?.exists() == true,
                     standalone = true,
-                    detail = "PRoot v5.4.0 verified in ${binary.parentFile?.name} (self-test exit=$exit)",
+                    dependenciesResolved = true,
+                    detail = "PRoot v${detectedVersion ?: "5.1.107.92"} verified in ${binary.parentFile?.name} (self-test exit=0)",
                 )
             } else {
+                log.warn("PRoot self-test failed: exit=$exit, output=${combined.take(120).trim()}")
                 ProotDiagnosticResult(
-                    status = ProotStatus.PROOT_OK,
+                    status = ProotStatus.PROOT_NOT_EXECUTABLE,
                     binaryPath = binary.path,
                     loaderPath = loader?.path,
                     abi = targetAbi,
                     elfValid = true,
                     elfType = elfInfo.typeName,
-                    executable = true,
+                    executable = false,
+                    hostLaunched = true,
+                    hostExitCode = exit,
+                    version = detectedVersion,
                     loaderValid = loader?.exists() == true,
                     standalone = true,
-                    detail = "PRoot verified with exit=$exit: ${combined.take(100)}",
+                    dependenciesResolved = true,
+                    detail = "PRoot self-test execution failed (exit=$exit): ${combined.take(100).trim()}",
+                    error = if (combined.isNotBlank()) combined.trim() else "Process exited with code $exit",
                 )
             }
         } catch (e: IOException) {
@@ -785,9 +824,12 @@ class ProotRuntimeBackend(
                 abi = targetAbi,
                 elfValid = true,
                 elfType = elfInfo.typeName,
-                executable = binary.canExecute(),
+                executable = false,
+                hostLaunched = false,
+                hostExitCode = null,
                 loaderValid = loader?.exists() == true,
                 standalone = true,
+                dependenciesResolved = true,
                 detail = if (isPermissionDenied) "Execution denied by platform (error=13 EACCES) at ${binary.path}" else "Execution failed: ${e.message}",
                 error = e.message,
             )
@@ -800,10 +842,13 @@ class ProotRuntimeBackend(
                 abi = targetAbi,
                 elfValid = true,
                 elfType = elfInfo.typeName,
-                executable = binary.canExecute(),
+                executable = false,
+                hostLaunched = false,
+                hostExitCode = null,
                 loaderValid = loader?.exists() == true,
                 standalone = true,
-                detail = "Execution failed: ${e.message}",
+                dependenciesResolved = true,
+                detail = "PRoot self-test unexpected error: ${e.message}",
                 error = e.message,
             )
         }

@@ -22,7 +22,7 @@ class ComponentProvenanceTest {
 
         val proot = manager.getComponent("PRoot")
         assertThat(proot.repository).isEqualTo("LinuxDroidapp/proot")
-        assertThat(proot.revision).isEqualTo("2b2531b139c2ce053a6de676447b8773deb7a77f")
+        assertThat(proot.revision).isEqualTo("caadcae0e7697ec29f02e231a3a88866561aacd0")
 
         val lddm = manager.getComponent("LDDM")
         assertThat(lddm.repository).isEqualTo("LinuxDroidapp/LDDM")
@@ -56,7 +56,7 @@ class ComponentProvenanceTest {
 
         val expected = """
 === LINUXDROID COMPONENTS ===
-PRoot:            LinuxDroidapp/proot@2b2531b139c2ce053a6de676447b8773deb7a77f
+PRoot:            LinuxDroidapp/proot@caadcae0e7697ec29f02e231a3a88866561aacd0
 LDDM:             LinuxDroidapp/LDDM@aa6c3d38f874244bcd60162889a914637e4ddf46
 LDDE:             LinuxDroidapp/LDDE@9ee575e963d6d1ff4086fc16fb119daf6ead6db2
 Wayland:          LinuxDroidapp/wayland@381af21cf84f13be0ca24aed756a9cded3290d49

@@ -5,7 +5,7 @@
     "PRoot": {
       "repository": "LinuxDroidapp/proot",
       "vendor_path": "vendor/proot",
-      "revision": "2b2531b139c2ce053a6de676447b8773deb7a77f"
+      "revision": "caadcae0e7697ec29f02e231a3a88866561aacd0"
     },
     "LDDM": {
       "repository": "LinuxDroidapp/LDDM",

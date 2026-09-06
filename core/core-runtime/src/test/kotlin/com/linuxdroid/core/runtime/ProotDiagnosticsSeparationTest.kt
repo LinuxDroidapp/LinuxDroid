@@ -179,4 +179,179 @@ class ProotDiagnosticsSeparationTest {
         assertThat(logContent).contains("cmd=ls")
         assertThat(logContent).contains("cmd=cat")
     }
+
+    @Test
+    fun `Test 6 - Bionic dynamic linker failure is classified as PROOT_DEPENDENCY_FAILURE`() {
+        val linkerErrorMsg = "CANNOT LINK EXECUTABLE \"/data/app/com.linuxdroid.app/lib/arm64/libproot.so\": library \"libtalloc.so\" not found: needed by main executable"
+        val isLinkerFailure = linkerErrorMsg.contains("CANNOT LINK EXECUTABLE", ignoreCase = true) ||
+            (linkerErrorMsg.contains("library \"", ignoreCase = true) && linkerErrorMsg.contains("not found", ignoreCase = true))
+
+        assertThat(isLinkerFailure).isTrue()
+
+        val diag = ProotDiagnosticResult(
+            status = ProotStatus.PROOT_DEPENDENCY_FAILURE,
+            binaryPath = "/data/app/com.linuxdroid.app/lib/arm64/libproot.so",
+            loaderPath = "/data/app/com.linuxdroid.app/lib/arm64/libproot_loader.so",
+            abi = "arm64-v8a",
+            elfValid = true,
+            elfType = "PIE EXECUTABLE (ET_DYN)",
+            executable = false,
+            hostLaunched = true,
+            hostExitCode = 1,
+            loaderValid = true,
+            standalone = false,
+            dependenciesResolved = false,
+            detail = "Dynamic linker unresolved: $linkerErrorMsg",
+            error = linkerErrorMsg,
+        )
+
+        assertThat(diag.status).isEqualTo(ProotStatus.PROOT_DEPENDENCY_FAILURE)
+        val formatted = diag.formatDiagnostic()
+        assertThat(formatted).contains("PRoot Dependencies: FAIL")
+        assertThat(formatted).contains("libtalloc.so")
+        assertThat(formatted).contains("Standalone: FAIL")
+        assertThat(diag.status.isReady).isFalse()
+    }
+
+    @Test
+    fun `Test 7 - Self-contained PRoot binary with static talloc formats PASS diagnostic`() {
+        val diag = ProotDiagnosticResult(
+            status = ProotStatus.PROOT_OK,
+            binaryPath = "/data/data/com.linuxdroid.app/files/runtime/arm64-v8a/proot",
+            loaderPath = "/data/data/com.linuxdroid.app/files/runtime/arm64-v8a/loader",
+            abi = "arm64-v8a",
+            elfValid = true,
+            elfType = "PIE EXECUTABLE (ET_DYN)",
+            executable = true,
+            hostLaunched = true,
+            hostExitCode = 0,
+            version = "5.1.107.92",
+            loaderValid = true,
+            standalone = true,
+            dependenciesResolved = true,
+            detail = "PRoot v5.1.107.92 verified in arm64-v8a (self-test exit=0)",
+        )
+
+        assertThat(diag.status).isEqualTo(ProotStatus.PROOT_OK)
+        val formatted = diag.formatDiagnostic()
+        assertThat(formatted).contains("PRoot Dependencies: PASS")
+        assertThat(formatted).contains("PRoot Host Execution: PASS")
+        assertThat(formatted).contains("PRoot Version: 5.1.107.92")
+        assertThat(formatted).contains("Standalone: PASS")
+        assertThat(diag.status.isReady).isTrue()
+    }
+
+    @Test
+    fun `Test 8 - Real PRoot version output from commit 378aefa parses version 5_1_107_92 and verifies PROOT_OK`() {
+        val prootOutput = """
+             _____ _____              ___
+            |  __ \  __ \_____  _____|   |_
+            |   __/     /  _  \/  _  \    _|
+            |__|  |__|__\_____/\_____/\____| 5.1.107.92
+
+            built-in accelerators: process_vm = yes, seccomp_filter = yes
+
+            Visit http://proot.me for help, bug reports, suggestions, patchs, ...
+            Copyright (C) 2015 STMicroelectronics, licensed under GPL v2 or later.
+        """.trimIndent()
+
+        // Test version regex extraction
+        val versionMatch = Regex("""\b5\.\d+\.\d+(?:\.\d+)?\b""").find(prootOutput)
+        assertThat(versionMatch).isNotNull()
+        assertThat(versionMatch!!.value).isEqualTo("5.1.107.92")
+
+        val diag = ProotDiagnosticResult(
+            status = ProotStatus.PROOT_OK,
+            binaryPath = "/data/app/com.linuxdroid.app/lib/arm64/libproot.so",
+            loaderPath = "/data/app/com.linuxdroid.app/lib/arm64/libproot_loader.so",
+            abi = "arm64-v8a",
+            elfValid = true,
+            elfType = "PIE EXECUTABLE (ET_DYN)",
+            executable = true,
+            hostLaunched = true,
+            hostExitCode = 0,
+            version = versionMatch.value,
+            loaderValid = true,
+            standalone = true,
+            dependenciesResolved = true,
+            detail = "PRoot v${versionMatch.value} verified in arm64 (self-test exit=0)",
+        )
+
+        val formatted = diag.formatDiagnostic()
+        assertThat(formatted).contains("PRoot Artifact: FOUND")
+        assertThat(formatted).contains("PRoot ABI: arm64-v8a")
+        assertThat(formatted).contains("PRoot ELF: VALID (PIE EXECUTABLE (ET_DYN))")
+        assertThat(formatted).contains("PRoot Dependencies: PASS")
+        assertThat(formatted).contains("PRoot Host Execution: PASS (Process launched successfully, exit=0)")
+        assertThat(formatted).contains("PRoot Version: 5.1.107.92")
+        assertThat(formatted).contains("Status: PROOT_OK")
+        assertThat(diag.status.isReady).isTrue()
+    }
+
+    @Test
+    fun `Test 9 - PRoot guest execution command structure isolates guest inside rootfs with linuxdroid-init`() {
+        val rootfsDir = tempFolder.newFolder("mock_rootfs")
+        val sbinDir = File(rootfsDir, "sbin").apply { mkdirs() }
+        val guestInitFile = File(sbinDir, "linuxdroid-init").apply {
+            writeText(GuestInit.SCRIPT_CONTENT)
+            setExecutable(true)
+        }
+
+        val prootBin = File(tempFolder.newFolder("bin"), "libproot.so").apply {
+            createNewFile()
+            setExecutable(true)
+        }
+
+        val builder = ProotCommandBuilder()
+
+        // 1. Minimum: /bin/true
+        val specTrue = RuntimeSpec(
+            environmentId = envId,
+            rootfsPath = rootfsDir.absolutePath,
+            architecture = Architecture.ARM64,
+            workingDirectory = "/",
+            command = listOf("/bin/true"),
+            executionTarget = ExecutionTarget.GUEST,
+            bootstrapPolicy = BootstrapPolicy.BOOTSTRAP_USERSPACE,
+            guestInitPath = "/sbin/linuxdroid-init",
+        )
+        val cmdTrue = builder.build(specTrue, prootBin)
+        assertThat(cmdTrue).contains(prootBin.absolutePath)
+        assertThat(cmdTrue).contains("-r")
+        assertThat(cmdTrue).contains(rootfsDir.absolutePath)
+        assertThat(cmdTrue).contains("/sbin/linuxdroid-init")
+        assertThat(cmdTrue.last()).isEqualTo("/bin/true")
+
+        // 2. /bin/sh -c 'echo LinuxDroid'
+        val specEcho = RuntimeSpec(
+            environmentId = envId,
+            rootfsPath = rootfsDir.absolutePath,
+            architecture = Architecture.ARM64,
+            workingDirectory = "/",
+            command = listOf("/bin/sh", "-c", "echo LinuxDroid"),
+            executionTarget = ExecutionTarget.GUEST,
+            bootstrapPolicy = BootstrapPolicy.BOOTSTRAP_USERSPACE,
+            guestInitPath = "/sbin/linuxdroid-init",
+        )
+        val cmdEcho = builder.build(specEcho, prootBin)
+        val initIdx = cmdEcho.indexOf("/sbin/linuxdroid-init")
+        assertThat(initIdx).isGreaterThan(0)
+        assertThat(cmdEcho.subList(initIdx + 1, cmdEcho.size)).containsExactly("/bin/sh", "-c", "echo LinuxDroid").inOrder()
+
+        // 3. /bin/pwd
+        val specPwd = RuntimeSpec(
+            environmentId = envId,
+            rootfsPath = rootfsDir.absolutePath,
+            architecture = Architecture.ARM64,
+            workingDirectory = "/root",
+            command = listOf("/bin/pwd"),
+            executionTarget = ExecutionTarget.GUEST,
+            bootstrapPolicy = BootstrapPolicy.BOOTSTRAP_USERSPACE,
+            guestInitPath = "/sbin/linuxdroid-init",
+        )
+        val cmdPwd = builder.build(specPwd, prootBin)
+        assertThat(cmdPwd).contains("-w")
+        assertThat(cmdPwd).contains("/root")
+        assertThat(cmdPwd.last()).isEqualTo("/bin/pwd")
+    }
 }

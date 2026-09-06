@@ -12,7 +12,7 @@ Every core component is strictly pinned to an authoritative commit SHA in `.gitm
 
 | Component | Repository URL | Vendor Path | Pinned Commit SHA | Primary Role in Stack |
 | :--- | :--- | :--- | :--- | :--- |
-| **PRoot** | `https://github.com/LinuxDroidapp/proot` | `vendor/proot` | `378aefaac7b62944243fc8d10fc78ba2a5372844` | User-space chroot/bind virtualization, syscall emulation, ptrace & seccomp sandboxing |
+| **PRoot** | `https://github.com/LinuxDroidapp/proot` | `vendor/proot` | `caadcae0e7697ec29f02e231a3a88866561aacd0` | User-space chroot/bind virtualization, syscall emulation, ptrace & seccomp sandboxing |
 | **LDDM** | `https://github.com/LinuxDroidapp/LDDM` | `vendor/LDDM` | `aa6c3d38f874244bcd60162889a914637e4ddf46` | LinuxDroid Display Manager (Wayland login greeter and session manager) |
 | **LDDE** | `https://github.com/LinuxDroidapp/LDDE` | `vendor/LDDE` | `9ee575e963d6d1ff4086fc16fb119daf6ead6db2` | LinuxDroid Desktop Environment (lightweight graphical shell and workspace) |
 | **Wayland** | `https://github.com/LinuxDroidapp/wayland` | `vendor/wayland` | `381af21cf84f13be0ca24aed756a9cded3290d49` | Core Wayland IPC protocol library (`libwayland-server`, `libwayland-client`, `libwayland-cursor`) |
@@ -61,7 +61,7 @@ git submodule status
 - Neither `wayland`, `wayland-protocols`, `LDDM`, nor `LDDE` consume pixman directly.
 
 ### 3.3 PRoot Android/ARM64 Patch Baseline
-The pinned PRoot revision (`378aefaac7b62944243fc8d10fc78ba2a5372844`) incorporates essential Android compatibility modifications:
+The pinned PRoot revision (`caadcae0e7697ec29f02e231a3a88866561aacd0`) incorporates essential Android compatibility modifications:
 - `PTRACE_PEEKDATA` memory read workaround for Bionic ptrace behavior.
 - ARM64 Top-Byte-Ignore (TBI) pointer handling in syscall translation.
 - Seccomp exit `SIGSYS` trap handler and graceful fallback.

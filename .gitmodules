@@ -1,6 +1,7 @@
 [submodule "vendor/proot"]
 	path = vendor/proot
 	url = https://github.com/LinuxDroidapp/proot
+	ignore = dirty
 [submodule "vendor/LDDM"]
 	path = vendor/LDDM
 	url = https://github.com/LinuxDroidapp/LDDM

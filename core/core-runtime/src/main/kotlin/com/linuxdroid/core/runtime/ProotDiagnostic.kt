@@ -33,19 +33,30 @@ data class ProotDiagnosticResult(
     val elfValid: Boolean,
     val elfType: String = "UNKNOWN",
     val executable: Boolean,
+    val hostLaunched: Boolean = false,
+    val hostExitCode: Int? = null,
+    val version: String? = null,
     val loaderValid: Boolean = true,
     val standalone: Boolean = true,
+    val dependenciesResolved: Boolean = true,
+    val guestTested: Boolean = false,
+    val guestSuccess: Boolean = false,
+    val guestExitCode: Int? = null,
     val detail: String,
     val error: String? = null,
 ) {
     fun formatDiagnostic(): String = buildString {
-        appendLine("PRoot: ${if (binaryPath != null) "FOUND ($binaryPath)" else "MISSING"}")
-        loaderPath?.let { appendLine("Loader: ${if (loaderValid) "FOUND ($it)" else "MISSING"}") }
-        abi?.let { appendLine("ABI: $it") }
-        appendLine("ELF: ${if (elfValid) "VALID ($elfType)" else "INVALID"}")
-        appendLine("Executable: ${if (executable) "YES" else "NO"}")
-        appendLine("Dependencies: PASS (Standalone Bionic binary, 0 external .so required)")
-        appendLine("Standalone: ${if (standalone) "PASS (Clean standalone build)" else "FAIL"}")
+        appendLine("PRoot Artifact: ${if (binaryPath != null) "FOUND ($binaryPath)" else "MISSING"}")
+        loaderPath?.let { appendLine("PRoot Loader: ${if (loaderValid) "FOUND ($it)" else "MISSING"}") }
+        abi?.let { appendLine("PRoot ABI: $it") }
+        appendLine("PRoot ELF: ${if (elfValid) "VALID ($elfType)" else "INVALID"}")
+        appendLine("PRoot Dependencies: ${if (dependenciesResolved && status != ProotStatus.PROOT_DEPENDENCY_FAILURE) "PASS (Standalone Bionic binary, 0 external .so required)" else "FAIL (${error ?: detail})"}")
+        appendLine("PRoot Host Execution: ${if (hostLaunched && hostExitCode == 0) "PASS (Process launched successfully, exit=0)" else if (hostLaunched) "FAIL (Process exited with code $hostExitCode)" else "FAIL (Process launch failed)"}")
+        version?.let { appendLine("PRoot Version: $it") }
+        if (guestTested) {
+            appendLine("PRoot Guest Execution: ${if (guestSuccess) "PASS (/bin/true, exit=0)" else "FAIL (Exit code $guestExitCode)"}")
+        }
+        appendLine("Standalone: ${if (standalone && status != ProotStatus.PROOT_DEPENDENCY_FAILURE) "PASS (Clean standalone build)" else "FAIL"}")
         appendLine("Status: ${status.name}")
         appendLine("Detail: $detail")
         error?.let { appendLine("Error: $it") }
