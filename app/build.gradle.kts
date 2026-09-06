@@ -79,8 +79,6 @@ android {
                 "**/libgl-renderer.so",
                 "**/libproot.so",
                 "**/libproot_loader.so",
-                "**/libtalloc.so",
-                "**/libandroid-shmem.so",
             )
         }
         resources {
@@ -229,12 +227,15 @@ val syncProotArtifacts = tasks.register("syncProotArtifacts") {
                 dst.setExecutable(true, false)
             }
 
-            listOf("libproot.so", "libproot_loader.so", "libtalloc.so", "libandroid-shmem.so").forEach { name ->
+            listOf("libproot.so", "libproot_loader.so").forEach { name ->
                 val src = File(arm64Dir, name)
                 if (src.exists()) {
                     src.copyTo(File(jniLibsTarget, name), overwrite = true)
                 }
             }
+            // Ensure no obsolete talloc or shmem dynamic libraries remain in jniLibs
+            File(jniLibsTarget, "libtalloc.so").takeIf { it.exists() }?.delete()
+            File(jniLibsTarget, "libandroid-shmem.so").takeIf { it.exists() }?.delete()
         }
 
         val prootFile = File(assetsTarget, "proot")

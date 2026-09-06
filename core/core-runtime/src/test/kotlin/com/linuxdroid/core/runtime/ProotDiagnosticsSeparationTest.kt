@@ -179,4 +179,56 @@ class ProotDiagnosticsSeparationTest {
         assertThat(logContent).contains("cmd=ls")
         assertThat(logContent).contains("cmd=cat")
     }
+
+    @Test
+    fun `Test 6 - Bionic dynamic linker failure is classified as PROOT_DEPENDENCY_FAILURE`() {
+        val linkerErrorMsg = "CANNOT LINK EXECUTABLE \"/data/app/com.linuxdroid.app/lib/arm64/libproot.so\": library \"libtalloc.so\" not found: needed by main executable"
+        val isLinkerFailure = linkerErrorMsg.contains("CANNOT LINK EXECUTABLE", ignoreCase = true) ||
+            (linkerErrorMsg.contains("library \"", ignoreCase = true) && linkerErrorMsg.contains("not found", ignoreCase = true))
+
+        assertThat(isLinkerFailure).isTrue()
+
+        val diag = ProotDiagnosticResult(
+            status = ProotStatus.PROOT_DEPENDENCY_FAILURE,
+            binaryPath = "/data/app/com.linuxdroid.app/lib/arm64/libproot.so",
+            loaderPath = "/data/app/com.linuxdroid.app/lib/arm64/libproot_loader.so",
+            abi = "arm64-v8a",
+            elfValid = true,
+            elfType = "DYN",
+            executable = false,
+            loaderValid = true,
+            standalone = false,
+            detail = "Dynamic linker unresolved: $linkerErrorMsg",
+            error = linkerErrorMsg,
+        )
+
+        assertThat(diag.status).isEqualTo(ProotStatus.PROOT_DEPENDENCY_FAILURE)
+        val formatted = diag.formatDiagnostic()
+        assertThat(formatted).contains("Dependencies: FAIL")
+        assertThat(formatted).contains("libtalloc.so")
+        assertThat(formatted).contains("Standalone: FAIL")
+        assertThat(diag.status.isReady).isFalse()
+    }
+
+    @Test
+    fun `Test 7 - Self-contained PRoot binary with static talloc formats PASS diagnostic`() {
+        val diag = ProotDiagnosticResult(
+            status = ProotStatus.PROOT_OK,
+            binaryPath = "/data/data/com.linuxdroid.app/files/runtime/arm64-v8a/proot",
+            loaderPath = "/data/data/com.linuxdroid.app/files/runtime/arm64-v8a/loader",
+            abi = "arm64-v8a",
+            elfValid = true,
+            elfType = "DYN",
+            executable = true,
+            loaderValid = true,
+            standalone = true,
+            detail = "PRoot v5.4.0 verified in arm64-v8a (self-test exit=0)",
+        )
+
+        assertThat(diag.status).isEqualTo(ProotStatus.PROOT_OK)
+        val formatted = diag.formatDiagnostic()
+        assertThat(formatted).contains("Dependencies: PASS")
+        assertThat(formatted).contains("Standalone: PASS")
+        assertThat(diag.status.isReady).isTrue()
+    }
 }

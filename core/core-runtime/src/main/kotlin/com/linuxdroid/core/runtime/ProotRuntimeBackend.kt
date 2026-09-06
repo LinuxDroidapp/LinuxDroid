@@ -747,7 +747,32 @@ class ProotRuntimeBackend(
 
             log.info("PRoot self-test probe: finished=$finished, exit=$exit, output=${combined.take(120).trim()}")
 
-            if (combined.contains("PRoot", ignoreCase = true) || combined.contains("proot", ignoreCase = true) || exit == 0) {
+            // Detect Bionic dynamic linker failures (e.g. CANNOT LINK EXECUTABLE, library "libtalloc.so" not found)
+            val isLinkerFailure = combined.contains("CANNOT LINK EXECUTABLE", ignoreCase = true) ||
+                (combined.contains("library \"", ignoreCase = true) && combined.contains("not found", ignoreCase = true))
+
+            if (isLinkerFailure) {
+                log.error("PRoot dynamic linker failure detected: ${combined.trim()}")
+                return ProotDiagnosticResult(
+                    status = ProotStatus.PROOT_DEPENDENCY_FAILURE,
+                    binaryPath = binary.path,
+                    loaderPath = loader?.path,
+                    abi = targetAbi,
+                    elfValid = true,
+                    elfType = elfInfo.typeName,
+                    executable = false,
+                    loaderValid = loader?.exists() == true,
+                    standalone = false,
+                    detail = "Dynamic linker unresolved: ${combined.trim()}",
+                    error = combined.trim(),
+                )
+            }
+
+            val hasVersionBanner = combined.contains("PRoot", ignoreCase = false) ||
+                combined.contains("proot v", ignoreCase = true) ||
+                combined.contains("version", ignoreCase = true)
+
+            if (exit == 0 && hasVersionBanner) {
                 ProotDiagnosticResult(
                     status = ProotStatus.PROOT_OK,
                     binaryPath = binary.path,
@@ -758,20 +783,22 @@ class ProotRuntimeBackend(
                     executable = true,
                     loaderValid = loader?.exists() == true,
                     standalone = true,
-                    detail = "PRoot v5.4.0 verified in ${binary.parentFile?.name} (self-test exit=$exit)",
+                    detail = "PRoot v5.4.0 verified in ${binary.parentFile?.name} (self-test exit=0)",
                 )
             } else {
+                log.warn("PRoot self-test failed: exit=$exit, output=${combined.take(120).trim()}")
                 ProotDiagnosticResult(
-                    status = ProotStatus.PROOT_OK,
+                    status = ProotStatus.PROOT_NOT_EXECUTABLE,
                     binaryPath = binary.path,
                     loaderPath = loader?.path,
                     abi = targetAbi,
                     elfValid = true,
                     elfType = elfInfo.typeName,
-                    executable = true,
+                    executable = false,
                     loaderValid = loader?.exists() == true,
                     standalone = true,
-                    detail = "PRoot verified with exit=$exit: ${combined.take(100)}",
+                    detail = "PRoot self-test execution failed (exit=$exit): ${combined.take(100).trim()}",
+                    error = if (combined.isNotBlank()) combined.trim() else "Process exited with code $exit",
                 )
             }
         } catch (e: IOException) {

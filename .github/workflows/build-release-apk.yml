@@ -82,6 +82,12 @@ jobs:
           echo "=== PRoot Binary Architecture ==="
           file ./app/src/main/assets/proot/arm64-v8a/proot | grep -E "ELF 64-bit.*aarch64"
           file ./app/src/main/assets/proot/arm64-v8a/loader | grep -E "ELF 64-bit.*aarch64"
+          echo "=== Verify PRoot Binary DT_NEEDED Dependencies ==="
+          readelf -d ./app/src/main/assets/proot/arm64-v8a/proot | grep -E "NEEDED"
+          if readelf -d ./app/src/main/assets/proot/arm64-v8a/proot | grep -E "(libtalloc|libandroid-shmem)"; then
+            echo "ERROR: proot binary has unexpected DT_NEEDED dependency on libtalloc or libandroid-shmem!"
+            exit 1
+          fi
           echo "=== Verify No Obsolete Binaries ==="
           test ! -f ./app/src/main/assets/proot/arm64-v8a/guest-mem
           test ! -f ./app/src/main/assets/proot/arm64-v8a/linuxdroid-selftest
@@ -122,12 +128,17 @@ jobs:
           unzip -l "$APK_FILE" | grep -E "assets/components_provenance.json"
           unzip -l "$APK_FILE" | grep -E "lib/arm64-v8a/libproot.so"
           unzip -l "$APK_FILE" | grep -E "lib/arm64-v8a/libproot_loader.so"
-          unzip -l "$APK_FILE" | grep -E "lib/arm64-v8a/libtalloc.so"
-          unzip -l "$APK_FILE" | grep -E "lib/arm64-v8a/libandroid-shmem.so"
           unzip -l "$APK_FILE" | grep -E "lib/arm64-v8a/libweston"
-          echo "=== Verifying Obsolete Binaries Are Not Packaged ==="
-          if unzip -l "$APK_FILE" | grep -E "(guest-mem|linuxdroid-selftest)"; then
-            echo "ERROR: Obsolete test binaries packaged in release APK!"
+          echo "=== Verifying No Obsolete or Loose Linux Libraries in APK ==="
+          if unzip -l "$APK_FILE" | grep -E "(libtalloc\.so|libandroid-shmem\.so|guest-mem|linuxdroid-selftest)"; then
+            echo "ERROR: Unwanted or obsolete binaries / libraries packaged in release APK!"
+            exit 1
+          fi
+          echo "=== Verifying libproot.so Has Zero DT_NEEDED for libtalloc.so ==="
+          mkdir -p /tmp/apk_check && unzip -p "$APK_FILE" "lib/arm64-v8a/libproot.so" > /tmp/apk_check/libproot.so
+          readelf -d /tmp/apk_check/libproot.so | grep -E "NEEDED"
+          if readelf -d /tmp/apk_check/libproot.so | grep -E "(libtalloc|libandroid-shmem)"; then
+            echo "ERROR: libproot.so still dynamically links libtalloc.so or libandroid-shmem.so!"
             exit 1
           fi
           echo "APK packaging verification passed."

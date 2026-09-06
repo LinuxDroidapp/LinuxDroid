@@ -55,7 +55,7 @@ class DiagnosticsManager(
                     com.linuxdroid.core.runtime.ProotStatus.PROOT_OK -> DiagnosticCheck(
                         name = "Runtime (proot)",
                         status = DiagnosticStatus.OK,
-                        detail = "PRoot executable verified (${diag.abi}, ELF valid, ${diag.detail})",
+                        detail = "PRoot executable verified (${diag.abi}, ELF valid, dependencies resolved, self-test exit=0)",
                     )
                     com.linuxdroid.core.runtime.ProotStatus.PROOT_MISSING -> DiagnosticCheck(
                         name = "Runtime (proot)",
@@ -66,8 +66,8 @@ class DiagnosticsManager(
                     com.linuxdroid.core.runtime.ProotStatus.PROOT_NOT_EXECUTABLE -> DiagnosticCheck(
                         name = "Runtime (proot)",
                         status = DiagnosticStatus.ERROR,
-                        detail = "PRoot binary found at ${diag.binaryPath} but lacks executable permissions",
-                        recommendation = "Grant execution permissions to native library directory",
+                        detail = "PRoot execution failed: ${diag.error ?: diag.detail}",
+                        recommendation = "Grant execution permissions to native library directory or check runtime logs",
                     )
                     com.linuxdroid.core.runtime.ProotStatus.PROOT_WRONG_ABI -> DiagnosticCheck(
                         name = "Runtime (proot)",
@@ -83,8 +83,8 @@ class DiagnosticsManager(
                     com.linuxdroid.core.runtime.ProotStatus.PROOT_DEPENDENCY_FAILURE -> DiagnosticCheck(
                         name = "Runtime (proot)",
                         status = DiagnosticStatus.ERROR,
-                        detail = "PRoot dependency missing: ${diag.error ?: diag.detail}",
-                        recommendation = "Ensure all runtime assets are extracted",
+                        detail = "PRoot dynamic linker / dependency failure: ${diag.error ?: diag.detail}",
+                        recommendation = "Rebuild PRoot with static talloc/android-shmem dependencies and ensure standalone Bionic linkage",
                     )
                     com.linuxdroid.core.runtime.ProotStatus.PROOT_LOADER_MISSING -> DiagnosticCheck(
                         name = "Runtime (proot)",
@@ -204,6 +204,7 @@ class DiagnosticsManager(
                     name = "Linux Userspace",
                     status = DiagnosticStatus.ERROR,
                     detail = detail,
+                    recommendation = "PRoot started but guest process failed. Check guest binaries, rootfs dynamic linker, and runtime logs.",
                 )
             }
 

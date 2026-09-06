@@ -44,8 +44,8 @@ data class ProotDiagnosticResult(
         abi?.let { appendLine("ABI: $it") }
         appendLine("ELF: ${if (elfValid) "VALID ($elfType)" else "INVALID"}")
         appendLine("Executable: ${if (executable) "YES" else "NO"}")
-        appendLine("Dependencies: PASS (Standalone Bionic binary, 0 external .so required)")
-        appendLine("Standalone: ${if (standalone) "PASS (Clean standalone build)" else "FAIL"}")
+        appendLine("Dependencies: ${if (status == ProotStatus.PROOT_DEPENDENCY_FAILURE) "FAIL (${error ?: detail})" else "PASS (Standalone Bionic binary, 0 external .so required)"}")
+        appendLine("Standalone: ${if (standalone && status != ProotStatus.PROOT_DEPENDENCY_FAILURE) "PASS (Clean standalone build)" else "FAIL"}")
         appendLine("Status: ${status.name}")
         appendLine("Detail: $detail")
         error?.let { appendLine("Error: $it") }
