@@ -19,7 +19,7 @@ class ComponentProvenanceManager(
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     companion object {
-        const val PROOT_COMMIT = "2b2531b139c2ce053a6de676447b8773deb7a77f"
+        const val PROOT_COMMIT = "378aefaac7b62944243fc8d10fc78ba2a5372844"
         const val LDDM_COMMIT = "aa6c3d38f874244bcd60162889a914637e4ddf46"
         const val LDDE_COMMIT = "9ee575e963d6d1ff4086fc16fb119daf6ead6db2"
         const val WAYLAND_COMMIT = "381af21cf84f13be0ca24aed756a9cded3290d49"

@@ -1,3 +1,4 @@
+import java.security.MessageDigest
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -67,7 +68,7 @@ android {
 
     sourceSets {
         getByName("main") {
-            jniLibs.srcDirs("src/main/jniLibs")
+            jniLibs.directories.add("src/main/jniLibs")
         }
     }
 
@@ -195,42 +196,72 @@ dependencies {
 val syncProotArtifacts = tasks.register("syncProotArtifacts") {
     group = "distribution"
     description = "Synchronizes standalone PRoot binaries, loader, MANIFEST, and JNI libs from vendor/proot"
-    dependsOn(":vendor:proot:assembleAndroidDist")
+    dependsOn(":vendor:proot:assembleRelease")
 
-    val vendorDist = rootProject.file("vendor/proot/dist/android/arm64-v8a")
     val assetsTarget = file("src/main/assets/proot/arm64-v8a")
     val jniLibsTarget = file("src/main/jniLibs/arm64-v8a")
 
-    inputs.dir(vendorDist).optional()
     outputs.dirs(assetsTarget, jniLibsTarget)
 
     doLast {
-        if (!vendorDist.exists()) return@doLast
         assetsTarget.mkdirs()
         jniLibsTarget.mkdirs()
 
-        listOf("proot", "loader", "MANIFEST.txt").forEach { name ->
-            val src = File(vendorDist, name)
-            if (src.exists()) {
-                val dst = File(assetsTarget, name)
-                if (!dst.exists() || dst.readBytes().contentEquals(src.readBytes()).not()) {
-                    src.copyTo(dst, overwrite = true)
-                    if (name != "MANIFEST.txt") {
-                        dst.setExecutable(true, false)
-                    }
+        // Locate CMake native build artifacts in vendor/proot
+        val prootIntermediates = rootProject.file("vendor/proot/build/intermediates/cxx")
+        val arm64Dir = prootIntermediates.walkTopDown()
+            .filter { it.isDirectory && it.name == "arm64-v8a" }
+            .firstOrNull { File(it, "proot-bin").exists() }
+            ?: rootProject.file("vendor/proot/dist/android/arm64-v8a")
+
+        if (arm64Dir.exists()) {
+            val prootBin = File(arm64Dir, "proot-bin").takeIf { it.exists() } ?: File(arm64Dir, "proot")
+            val loaderBin = File(arm64Dir, "prootloader-bin").takeIf { it.exists() } ?: File(arm64Dir, "loader")
+
+            if (prootBin.exists()) {
+                val dst = File(assetsTarget, "proot")
+                prootBin.copyTo(dst, overwrite = true)
+                dst.setExecutable(true, false)
+            }
+            if (loaderBin.exists()) {
+                val dst = File(assetsTarget, "loader")
+                loaderBin.copyTo(dst, overwrite = true)
+                dst.setExecutable(true, false)
+            }
+
+            listOf("libproot.so", "libproot_loader.so", "libtalloc.so", "libandroid-shmem.so").forEach { name ->
+                val src = File(arm64Dir, name)
+                if (src.exists()) {
+                    src.copyTo(File(jniLibsTarget, name), overwrite = true)
                 }
             }
         }
 
-        listOf("libproot.so", "libproot_loader.so", "libtalloc.so", "libandroid-shmem.so").forEach { name ->
-            val src = File(vendorDist, name)
-            if (src.exists()) {
-                val dst = File(jniLibsTarget, name)
-                if (!dst.exists() || dst.readBytes().contentEquals(src.readBytes()).not()) {
-                    src.copyTo(dst, overwrite = true)
-                }
+        val prootFile = File(assetsTarget, "proot")
+        val loaderFile = File(assetsTarget, "loader")
+        fun sha256(file: File): String {
+            if (!file.exists()) return "unknown"
+            val md = MessageDigest.getInstance("SHA-256")
+            return file.inputStream().use { input ->
+                val buf = ByteArray(8192)
+                var read: Int
+                while (input.read(buf).also { read = it } != -1) md.update(buf, 0, read)
+                md.digest().joinToString("") { b -> "%02x".format(b) }
             }
         }
+
+        val manifest = File(assetsTarget, "MANIFEST.txt")
+        manifest.writeText(
+            """
+            LinuxDroid-PRoot v5.1.107.92
+            commit:  378aefaac7b62944243fc8d10fc78ba2a5372844
+            ABI:     arm64-v8a
+            arch:    aarch64
+            sha256:
+              proot:    ${sha256(prootFile)}
+              loader:   ${sha256(loaderFile)}
+            """.trimIndent() + "\n"
+        )
     }
 }
 
