@@ -14,8 +14,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out source
+      - name: Check out source with recursive submodules
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -35,17 +37,22 @@ jobs:
           sdkmanager "platform-tools" \
             "platforms;android-36" \
             "build-tools;36.0.0" \
-            "ndk;30.0.16138531" \
-            "cmake;3.22.1"
+            "ndk;30.0.16138531"
 
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Install Native Build Tools
+      - name: Install Native Build Tools and CMake 4.4.3
         run: |
           sudo apt-get update
-          sudo apt-get install -y flex bison ninja-build python3-pip python3-setuptools
-          pip install --break-system-packages meson
+          sudo apt-get install -y flex bison ninja-build python3-pip python3-setuptools pkg-config
+          pip install --break-system-packages meson cmake==4.4.3 || pip install meson cmake==4.4.3
+          CMAKE_DATA_DIR="$(python3 -c 'import cmake; print(cmake.CMAKE_DATA)')"
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
+          mkdir -p "$SDK_DIR/cmake"
+          ln -sfn "$CMAKE_DATA_DIR" "$SDK_DIR/cmake/4.4.3"
+          echo "CMake 4.4.3 configured at $SDK_DIR/cmake/4.4.3"
+          "$SDK_DIR/cmake/4.4.3/bin/cmake" --version
 
       - name: Build Native Wayland & Weston Stack
         run: |
@@ -63,9 +70,24 @@ jobs:
           echo "=== Symbol Verification ==="
           nm -D ./app/src/main/jniLibs/arm64-v8a/libweston-*.so | grep -E "weston_compositor_create|weston_compositor_add_head|weston_compositor_backends_loaded|pixman_renderer_init|weston_compositor_init_renderer"
 
-      - name: Run Native Foundation Smoke Tests
+      - name: Verify Core Components & PRoot Provenance
         run: |
-          ./gradlew :native:bridge:testDebugUnitTest --no-daemon
+          echo "=== Git Submodule Status ==="
+          git submodule status
+          echo "=== Components Provenance ==="
+          cat ./app/src/main/assets/components_provenance.json
+          echo "=== PRoot Manifest ==="
+          cat ./app/src/main/assets/proot/arm64-v8a/MANIFEST.txt
+          echo "=== PRoot Binary Architecture ==="
+          file ./app/src/main/assets/proot/arm64-v8a/proot | grep -E "ELF 64-bit.*aarch64"
+          file ./app/src/main/assets/proot/arm64-v8a/loader | grep -E "ELF 64-bit.*aarch64"
+          echo "=== Verify No Obsolete Binaries ==="
+          test ! -f ./app/src/main/assets/proot/arm64-v8a/guest-mem
+          test ! -f ./app/src/main/assets/proot/arm64-v8a/linuxdroid-selftest
+
+      - name: Run Complete Unit Test Suite
+        run: |
+          ./gradlew testDebugUnitTest --no-daemon
 
       # The current Gradle release configuration requires a keystore.
       # This key is temporary and must not be used for production releases.
@@ -88,6 +110,26 @@ jobs:
           # while still failing the step if the build fails (pipefail).
           set -o pipefail
           ./gradlew :app:assembleRelease --no-daemon --stacktrace 2>&1 | tee build-log.txt
+
+      - name: Verify Packaged Release APK Artifacts
+        run: |
+          echo "=== Verifying Packaged PRoot and Weston in APK ==="
+          APK_FILE="$(ls app/build/outputs/apk/release/*.apk | head -n1)"
+          unzip -l "$APK_FILE" | grep -E "assets/proot/arm64-v8a/proot"
+          unzip -l "$APK_FILE" | grep -E "assets/proot/arm64-v8a/loader"
+          unzip -l "$APK_FILE" | grep -E "assets/proot/arm64-v8a/MANIFEST.txt"
+          unzip -l "$APK_FILE" | grep -E "assets/components_provenance.json"
+          unzip -l "$APK_FILE" | grep -E "lib/arm64-v8a/libproot.so"
+          unzip -l "$APK_FILE" | grep -E "lib/arm64-v8a/libproot_loader.so"
+          unzip -l "$APK_FILE" | grep -E "lib/arm64-v8a/libtalloc.so"
+          unzip -l "$APK_FILE" | grep -E "lib/arm64-v8a/libandroid-shmem.so"
+          unzip -l "$APK_FILE" | grep -E "lib/arm64-v8a/libweston"
+          echo "=== Verifying Obsolete Binaries Are Not Packaged ==="
+          if unzip -l "$APK_FILE" | grep -E "(guest-mem|linuxdroid-selftest)"; then
+            echo "ERROR: Obsolete test binaries packaged in release APK!"
+            exit 1
+          fi
+          echo "APK packaging verification passed."
 
       - name: Upload build log on failure
         if: failure()

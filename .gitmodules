@@ -1,0 +1,21 @@
+[submodule "vendor/proot"]
+	path = vendor/proot
+	url = https://github.com/LinuxDroidapp/proot
+[submodule "vendor/LDDM"]
+	path = vendor/LDDM
+	url = https://github.com/LinuxDroidapp/LDDM
+[submodule "vendor/LDDE"]
+	path = vendor/LDDE
+	url = https://github.com/LinuxDroidapp/LDDE
+[submodule "vendor/wayland"]
+	path = vendor/wayland
+	url = https://github.com/LinuxDroidapp/wayland
+[submodule "vendor/weston"]
+	path = vendor/weston
+	url = https://github.com/LinuxDroidapp/weston
+[submodule "vendor/wayland-protocols"]
+	path = vendor/wayland-protocols
+	url = https://github.com/LinuxDroidapp/wayland-protocols
+[submodule "vendor/pixman"]
+	path = vendor/pixman
+	url = https://github.com/LinuxDroidapp/pixman

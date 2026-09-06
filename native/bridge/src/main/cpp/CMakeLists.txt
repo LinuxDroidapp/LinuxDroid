@@ -109,11 +109,23 @@ target_include_directories(
 )
 
 # Weston GLES Hardware Renderer Plugin (gl-renderer)
-set(WESTON_SRC "${PROJECT_ROOT}/native/weston/src/weston")
+set(WESTON_SRC "${PROJECT_ROOT}/vendor/weston")
 
-# Automatically generate shader headers if not present
-set(VERTEX_SHADER_H "${WESTON_SRC}/libweston/renderer-gl/vertex-shader.h")
-set(FRAGMENT_SHADER_H "${WESTON_SRC}/libweston/renderer-gl/fragment-shader.h")
+# Automatically generate shader headers into binary directory if not present
+set(SHADER_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated-shaders")
+file(MAKE_DIRECTORY "${SHADER_GEN_DIR}")
+set(VERTEX_SHADER_H "${SHADER_GEN_DIR}/vertex-shader.h")
+set(FRAGMENT_SHADER_H "${SHADER_GEN_DIR}/fragment-shader.h")
+set(WESTON_CONFIG_H "${SHADER_GEN_DIR}/config.h")
+file(WRITE "${WESTON_CONFIG_H}"
+"#pragma once
+#define ENABLE_EGL 1
+#define HAVE_LINUX_SYNC_FILE_H 1
+#define _GNU_SOURCE 1
+#ifndef program_invocation_short_name
+#define program_invocation_short_name getprogname()
+#endif
+")
 if(NOT EXISTS "${VERTEX_SHADER_H}" OR NOT EXISTS "${FRAGMENT_SHADER_H}")
     execute_process(
         COMMAND python3 ${WESTON_SRC}/tools/xxd.py -n vertex_shader
@@ -127,6 +139,16 @@ if(NOT EXISTS "${VERTEX_SHADER_H}" OR NOT EXISTS "${FRAGMENT_SHADER_H}")
     )
 endif()
 
+# Resolve linux-dmabuf-unstable-v1-protocol.c
+set(DMABUF_PROTOCOL_C "")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/protocol/linux-dmabuf-unstable-v1-protocol.c")
+    set(DMABUF_PROTOCOL_C "${CMAKE_CURRENT_SOURCE_DIR}/protocol/linux-dmabuf-unstable-v1-protocol.c")
+elseif(EXISTS "${PROJECT_ROOT}/native/weston/src/weston/build-android/protocol/linux-dmabuf-unstable-v1-protocol.c")
+    set(DMABUF_PROTOCOL_C "${PROJECT_ROOT}/native/weston/src/weston/build-android/protocol/linux-dmabuf-unstable-v1-protocol.c")
+elseif(EXISTS "${WESTON_SRC}/build-android/protocol/linux-dmabuf-unstable-v1-protocol.c")
+    set(DMABUF_PROTOCOL_C "${WESTON_SRC}/build-android/protocol/linux-dmabuf-unstable-v1-protocol.c")
+endif()
+
 add_library(
     gl-renderer SHARED
     ${WESTON_SRC}/libweston/renderer-gl/egl-glue.c
@@ -135,7 +157,7 @@ add_library(
     ${WESTON_SRC}/libweston/renderer-gl/gl-shader-config-color-transformation.c
     ${WESTON_SRC}/libweston/renderer-gl/gl-utils.c
     ${WESTON_SRC}/libweston/vertex-clipping.c
-    ${WESTON_SRC}/build-android/protocol/linux-dmabuf-unstable-v1-protocol.c
+    ${DMABUF_PROTOCOL_C}
 )
 
 target_compile_definitions(
@@ -147,12 +169,14 @@ target_compile_definitions(
 
 target_include_directories(
     gl-renderer PRIVATE
+    ${SHADER_GEN_DIR}
     ${WESTON_SRC}/libweston/renderer-gl
     ${WESTON_SRC}/libweston
     ${WESTON_SRC}
     ${WESTON_SRC}/include
     ${WESTON_SRC}/build-android
     ${WESTON_SRC}/build-android/protocol
+    ${CMAKE_CURRENT_SOURCE_DIR}/protocol
     ${WESTON_PREFIX}/include
     ${WESTON_PREFIX}/include/pixman-1
     ${WESTON_PREFIX}/include/libdrm

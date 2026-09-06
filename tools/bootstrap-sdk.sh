@@ -82,7 +82,7 @@ extract_version() {
 CI_COMPILE_SDK="$(extract_version "compileSdk" "36")"
 CI_BUILD_TOOLS="$(extract_version "buildTools" "36.0.0")"
 CI_NDK_VERSION="$(extract_version "ndk" "30.0.16138531")"
-CI_CMAKE_VERSION="$(extract_version "cmake" "3.22.1")"
+CI_CMAKE_VERSION="$(extract_version "cmake" "4.4.3")"
 CI_CMDLINE_VERSION="15859902"
 
 # Option flags
@@ -382,7 +382,9 @@ if [[ "$INSTALL_NDK" == true ]]; then
     REQUIRED_PACKAGES+=("ndk;${NDK_VERSION}")
 fi
 if [[ "$INSTALL_CMAKE" == true ]]; then
-    REQUIRED_PACKAGES+=("cmake;${CMAKE_VERSION}")
+    if [[ "$CMAKE_VERSION" =~ ^3\. ]]; then
+        REQUIRED_PACKAGES+=("cmake;${CMAKE_VERSION}")
+    fi
 fi
 
 PACKAGES_TO_INSTALL=()
@@ -421,6 +423,18 @@ else
     log_info "Installing missing components: ${PACKAGES_TO_INSTALL[*]}"
     "$SDKMANAGER_BIN" --sdk_root="$ANDROID_SDK_ROOT" --channel=3 "${PACKAGES_TO_INSTALL[@]}"
     log_success "SDK components installation complete."
+fi
+
+# Ensure modern CMake (e.g. 4.4.3) is available in Android SDK cmake directory
+if [[ "$INSTALL_CMAKE" == true && (! -d "$ANDROID_SDK_ROOT/cmake/${CMAKE_VERSION}" || "$FORCE_REINSTALL" == true) ]]; then
+    log_info "Installing CMake ${CMAKE_VERSION} via Python/pip..."
+    pip install --break-system-packages "cmake==${CMAKE_VERSION}" || pip install "cmake==${CMAKE_VERSION}" || true
+    CMAKE_DATA_DIR="$(python3 -c 'import cmake; print(cmake.CMAKE_DATA)' 2>/dev/null || true)"
+    if [[ -n "$CMAKE_DATA_DIR" && -d "$CMAKE_DATA_DIR" ]]; then
+        mkdir -p "$ANDROID_SDK_ROOT/cmake"
+        ln -sfn "$CMAKE_DATA_DIR" "$ANDROID_SDK_ROOT/cmake/${CMAKE_VERSION}"
+        log_success "CMake ${CMAKE_VERSION} configured at $ANDROID_SDK_ROOT/cmake/${CMAKE_VERSION}"
+    fi
 fi
 
 # ==============================================================================

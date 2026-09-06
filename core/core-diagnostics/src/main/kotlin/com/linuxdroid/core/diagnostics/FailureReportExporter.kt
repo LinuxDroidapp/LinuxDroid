@@ -32,6 +32,11 @@ class FailureReportExporter(
         sb.appendLine("================================================================================")
         sb.appendLine()
 
+        // 0. LINUXDROID COMPONENTS PROVENANCE
+        sb.appendLine("--- [0. LINUXDROID COMPONENTS PROVENANCE] ---")
+        sb.appendLine(ComponentProvenanceManager().formatComponentsBlock())
+        sb.appendLine()
+
         // 1. Environment and System Specs
         sb.appendLine("--- [1. HOST & GUEST ENVIRONMENT] ---")
         report.environmentInfo.forEach { (k, v) ->
