@@ -55,7 +55,7 @@ class DiagnosticsManager(
                     com.linuxdroid.core.runtime.ProotStatus.PROOT_OK -> DiagnosticCheck(
                         name = "Runtime (proot)",
                         status = DiagnosticStatus.OK,
-                        detail = "PRoot executable verified (${diag.abi}, ELF valid, dependencies resolved, self-test exit=0)",
+                        detail = "PRoot executable verified (${diag.abi}, ELF ${diag.elfType}, dependencies resolved, host exit=0, version=${diag.version ?: "5.1.107.92"})",
                     )
                     com.linuxdroid.core.runtime.ProotStatus.PROOT_MISSING -> DiagnosticCheck(
                         name = "Runtime (proot)",
@@ -66,8 +66,8 @@ class DiagnosticsManager(
                     com.linuxdroid.core.runtime.ProotStatus.PROOT_NOT_EXECUTABLE -> DiagnosticCheck(
                         name = "Runtime (proot)",
                         status = DiagnosticStatus.ERROR,
-                        detail = "PRoot execution failed: ${diag.error ?: diag.detail}",
-                        recommendation = "Grant execution permissions to native library directory or check runtime logs",
+                        detail = "PRoot host execution failed (exit=${diag.hostExitCode}): ${diag.error ?: diag.detail}",
+                        recommendation = "Check PRoot runtime logs and native execution permissions",
                     )
                     com.linuxdroid.core.runtime.ProotStatus.PROOT_WRONG_ABI -> DiagnosticCheck(
                         name = "Runtime (proot)",
@@ -96,7 +96,7 @@ class DiagnosticsManager(
                         name = "Runtime (proot)",
                         status = DiagnosticStatus.ERROR,
                         detail = "PRoot execution denied by platform (error=13 EACCES) at ${diag.binaryPath}",
-                        recommendation = "Set executable permissions on runtime binary",
+                        recommendation = "Set executable permissions on native library directory or re-extract runtime binary",
                     )
                 }
             } else {
