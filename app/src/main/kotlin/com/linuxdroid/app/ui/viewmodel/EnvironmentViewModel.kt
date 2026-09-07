@@ -11,13 +11,27 @@ import com.linuxdroid.core.logging.LinuxDroidLogger
 import com.linuxdroid.core.logging.LogSubsystem
 import com.linuxdroid.core.model.*
 import com.linuxdroid.core.runtime.RuntimeBackend
+import com.linuxdroid.core.session.SessionManager
+import com.linuxdroid.linux.bootstrap.DynamicDistributionResolver
 import com.linuxdroid.linux.bootstrap.RootfsBootstrapper
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.io.File
 import javax.inject.Inject
+
+sealed class DistributionFetchState {
+    object Idle : DistributionFetchState()
+    data class Fetching(val distro: Distribution, val message: String) : DistributionFetchState()
+    data class Ready(
+        val distro: Distribution,
+        val releases: List<DistroRelease>,
+        val definition: DistributionDefinition,
+    ) : DistributionFetchState()
+    data class Failed(val distro: Distribution, val error: String) : DistributionFetchState()
+}
 
 @HiltViewModel
 class EnvironmentViewModel @Inject constructor(
@@ -26,6 +40,8 @@ class EnvironmentViewModel @Inject constructor(
     private val storage: EnvironmentStorage,
     private val runtimeBackend: RuntimeBackend,
     private val bootstrapper: RootfsBootstrapper,
+    private val guiInstaller: com.linuxdroid.linux.bootstrap.GuiInstaller,
+    private val sessionManager: SessionManager,
 ) : ViewModel() {
 
     private val log = LinuxDroidLogger(LogSubsystem.APPLICATION)
@@ -33,6 +49,9 @@ class EnvironmentViewModel @Inject constructor(
     val environments: StateFlow<List<Environment>> = dao.observeAll()
         .map { entities -> entities.map { EnvironmentMapper.toDomain(it) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _distroFetchState = MutableStateFlow<DistributionFetchState>(DistributionFetchState.Idle)
+    val distroFetchState: StateFlow<DistributionFetchState> = _distroFetchState.asStateFlow()
 
     private val _installProgress = MutableStateFlow<Map<String, Float>>(emptyMap())
     val installProgress: StateFlow<Map<String, Float>> = _installProgress.asStateFlow()
@@ -43,8 +62,135 @@ class EnvironmentViewModel @Inject constructor(
     private val _installerLogs = MutableStateFlow<Map<String, List<String>>>(emptyMap())
     val installerLogs: StateFlow<Map<String, List<String>>> = _installerLogs.asStateFlow()
 
+    private val _guiStates = MutableStateFlow<Map<String, GuiState>>(emptyMap())
+    val guiStates: StateFlow<Map<String, GuiState>> = _guiStates.asStateFlow()
+
+    private val _guiInstallProgress = MutableStateFlow<Map<String, Float>>(emptyMap())
+    val guiInstallProgress: StateFlow<Map<String, Float>> = _guiInstallProgress.asStateFlow()
+
+    private val _guiInstallLogs = MutableStateFlow<Map<String, List<String>>>(emptyMap())
+    val guiInstallLogs: StateFlow<Map<String, List<String>>> = _guiInstallLogs.asStateFlow()
+
     private val _errorMessage = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val errorMessage: SharedFlow<String> = _errorMessage.asSharedFlow()
+
+    fun prepareDistribution(distribution: Distribution, release: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _distroFetchState.value = DistributionFetchState.Fetching(distribution, "Resolving release metadata for ${distribution.displayName}...")
+            try {
+                val releases = DistributionCatalog.getAvailableReleases(distribution)
+                val selectedRelease = release ?: releases.firstOrNull { it.isDefault }?.releaseCode ?: releases.firstOrNull()?.releaseCode
+                val baseDef = DistributionCatalog.getDefinition(distribution, Architecture.current(), selectedRelease)
+                val resolvedDef = try {
+                    DynamicDistributionResolver().resolveLatest(baseDef) { msg ->
+                        _distroFetchState.value = DistributionFetchState.Fetching(distribution, msg)
+                    }
+                } catch (e: Exception) {
+                    baseDef
+                }
+                _distroFetchState.value = DistributionFetchState.Ready(distribution, releases, resolvedDef)
+            } catch (e: Exception) {
+                log.warn("Distribution prefetch metadata check: ${e.message}")
+                val releases = DistributionCatalog.getAvailableReleases(distribution)
+                val baseDef = DistributionCatalog.getDefinition(distribution, Architecture.current(), releases.firstOrNull()?.releaseCode)
+                _distroFetchState.value = DistributionFetchState.Ready(distribution, releases, baseDef)
+            }
+        }
+    }
+
+    fun createEnvironmentWithConfig(
+        installConfig: InstallConfig,
+        environmentName: String? = null,
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val distro = installConfig.distro
+                val arch = installConfig.architecture
+                val defaultName = "${distro.displayName} (${arch.abiName})"
+                val name = environmentName?.trim()?.ifEmpty { defaultName } ?: defaultName
+                val id = EnvironmentId.generate()
+                log.info("Creating environment '$name' ($id) with install config for user ${installConfig.username}")
+
+                storage.initializeEnvironmentDirs(id)
+
+                val metadata = EnvironmentMetadata(
+                    id = id,
+                    name = name,
+                    distribution = distro,
+                    architecture = arch,
+                )
+
+                val environment = Environment(
+                    metadata = metadata,
+                    configuration = EnvironmentConfiguration(linuxUser = installConfig.username),
+                    state = EnvironmentState.CREATED,
+                    rootfsPath = storage.rootfsDir(id).absolutePath,
+                    metadataPath = storage.metadataDir(id).absolutePath,
+                )
+
+                dao.insert(EnvironmentMapper.toEntity(environment))
+
+                installRootfsWithConfig(environment, installConfig)
+            } catch (e: Exception) {
+                log.error("Failed to create environment with install config", e)
+                _errorMessage.tryEmit(e.message ?: "Failed to create environment")
+            }
+        }
+    }
+
+    fun installRootfsWithConfig(environment: Environment, installConfig: InstallConfig) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val envId = environment.id.value
+            try {
+                log.info("Starting rootfs installation with config for $envId (user=${installConfig.username}, distro=${installConfig.distro.displayName})")
+                dao.updateState(
+                    id = envId,
+                    state = EnvironmentState.INSTALLING.name,
+                    timestamp = System.currentTimeMillis(),
+                    failureMessage = null,
+                )
+
+                _installerLogs.update { it + (envId to listOf(">>> Starting ${installConfig.distro.displayName} (${installConfig.release}) rootfs installation...")) }
+
+                bootstrapper.bootstrapRootfs(
+                    environment = environment,
+                    installConfig = installConfig,
+                    onProgress = { progress, status ->
+                        _installProgress.update { it + (envId to progress) }
+                        _installStatusText.update { it + (envId to status) }
+                    },
+                    onLog = { line ->
+                        _installerLogs.update { map ->
+                            val current = map[envId] ?: emptyList()
+                            map + (envId to (current + line).takeLast(500))
+                        }
+                    }
+                )
+
+                // Verify and update to READY
+                dao.updateState(
+                    id = envId,
+                    state = EnvironmentState.READY.name,
+                    timestamp = System.currentTimeMillis(),
+                    failureMessage = null,
+                )
+                _installProgress.update { it - envId }
+                _installStatusText.update { it - envId }
+                log.info("Rootfs installed with config and environment $envId is READY")
+            } catch (e: Exception) {
+                log.error("Failed to install rootfs with config for $envId", e)
+                dao.updateState(
+                    id = envId,
+                    state = EnvironmentState.FAILED.name,
+                    timestamp = System.currentTimeMillis(),
+                    failureMessage = e.message ?: "Installation failed",
+                )
+                _installProgress.update { it - envId }
+                _installStatusText.update { it - envId }
+                _errorMessage.tryEmit("Bootstrap failed: ${e.message}")
+            }
+        }
+    }
 
     fun createEnvironment(
         name: String,
@@ -140,11 +286,11 @@ class EnvironmentViewModel @Inject constructor(
         }
     }
 
-    fun startEnvironment(environment: Environment) {
+    fun startEnvironment(environment: Environment, startMode: StartMode = StartMode.GUI) {
         viewModelScope.launch(Dispatchers.IO) {
             val envId = environment.id.value
             try {
-                log.info("Starting runtime for $envId")
+                log.info("[RUNTIME] Start requested: env=$envId startMode=${startMode.name}")
                 dao.updateState(
                     id = envId,
                     state = EnvironmentState.STARTING.name,
@@ -152,9 +298,7 @@ class EnvironmentViewModel @Inject constructor(
                     failureMessage = null,
                 )
 
-                runtimeBackend.prepare(environment)
-                runtimeBackend.initialize(environment)
-                runtimeBackend.start(environment)
+                sessionManager.startSession(environment, startMode)
 
                 dao.updateState(
                     id = envId,
@@ -165,16 +309,42 @@ class EnvironmentViewModel @Inject constructor(
 
                 // Start Foreground Service
                 LinuxSessionService.start(context, environment.name)
-                log.info("Environment $envId is now RUNNING")
+                log.info("Environment $envId is now RUNNING (startMode=${startMode.name})")
             } catch (e: Exception) {
-                log.error("Failed to start environment $envId", e)
-                dao.updateState(
-                    id = envId,
-                    state = EnvironmentState.FAILED.name,
-                    timestamp = System.currentTimeMillis(),
-                    failureMessage = e.message ?: "Startup failed",
-                )
-                _errorMessage.tryEmit("Failed to start: ${e.message}")
+                log.error("Failed to start environment $envId in ${startMode.name} mode", e)
+                if (startMode == StartMode.GUI && (e is GuiNotInstalledError || e is GuiInstallFailedError || e is GuiValidationFailedError || e is GuiInstallInProgressError)) {
+                    dao.updateState(
+                        id = envId,
+                        state = EnvironmentState.READY.name,
+                        timestamp = System.currentTimeMillis(),
+                        failureMessage = null,
+                    )
+                    when (e) {
+                        is GuiNotInstalledError -> {
+                            _guiStates.update { it + (envId to GuiState.NOT_INSTALLED) }
+                            _errorMessage.tryEmit("GUI is not installed. Tap 'Install GUI' to set up the desktop.")
+                        }
+                        is GuiInstallFailedError -> {
+                            _guiStates.update { it + (envId to GuiState.FAILED) }
+                            _errorMessage.tryEmit("GUI installation failed: ${e.reason}. Tap 'Repair GUI' or view logs.")
+                        }
+                        is GuiValidationFailedError -> {
+                            _guiStates.update { it + (envId to GuiState.FAILED) }
+                            _errorMessage.tryEmit("GUI validation failed: ${e.details}. Tap 'Repair GUI' to fix.")
+                        }
+                        is GuiInstallInProgressError -> {
+                            _errorMessage.tryEmit("GUI installation is in progress. Please wait.")
+                        }
+                    }
+                } else {
+                    dao.updateState(
+                        id = envId,
+                        state = EnvironmentState.FAILED.name,
+                        timestamp = System.currentTimeMillis(),
+                        failureMessage = e.message ?: "Startup failed",
+                    )
+                    _errorMessage.tryEmit("Failed to start: ${e.message}")
+                }
             }
         }
     }
@@ -191,7 +361,12 @@ class EnvironmentViewModel @Inject constructor(
                     failureMessage = null,
                 )
 
-                runtimeBackend.stop(environment)
+                val activeSession = sessionManager.getSession(environment.id)
+                if (activeSession != null) {
+                    sessionManager.stopSession(activeSession.id)
+                } else {
+                    runtimeBackend.stop(environment)
+                }
 
                 dao.updateState(
                     id = envId,
@@ -201,7 +376,7 @@ class EnvironmentViewModel @Inject constructor(
                 )
 
                 // Stop foreground service if no environments are running
-                LinuxSessionService.stop(context)
+                LinuxSessionService.stop(context, envId)
                 log.info("Environment $envId is now STOPPED")
             } catch (e: Exception) {
                 log.error("Failed to stop environment $envId", e)
@@ -215,12 +390,17 @@ class EnvironmentViewModel @Inject constructor(
         }
     }
 
-    fun restartEnvironment(environment: Environment) {
+    fun restartEnvironment(environment: Environment, startMode: StartMode = StartMode.GUI) {
         viewModelScope.launch(Dispatchers.IO) {
             val envId = environment.id.value
             try {
-                log.info("Restarting environment $envId")
-                runtimeBackend.stop(environment)
+                log.info("Restarting environment $envId (startMode=${startMode.name})")
+                val activeSession = sessionManager.getSession(environment.id)
+                if (activeSession != null) {
+                    sessionManager.stopSession(activeSession.id)
+                } else {
+                    runtimeBackend.stop(environment)
+                }
                 runtimeBackend.initialize(environment)
 
                 if (environment.state == EnvironmentState.FAILED) {
@@ -250,7 +430,7 @@ class EnvironmentViewModel @Inject constructor(
                 } else {
                     environment
                 }
-                runtimeBackend.start(readyEnv)
+                sessionManager.startSession(readyEnv, startMode)
 
                 dao.updateState(
                     id = envId,
@@ -259,19 +439,123 @@ class EnvironmentViewModel @Inject constructor(
                     failureMessage = null,
                 )
                 LinuxSessionService.start(context, environment.name)
-                log.info("Environment $envId restarted and is RUNNING")
+                log.info("Environment $envId restarted and is RUNNING (startMode=${startMode.name})")
             } catch (e: Exception) {
                 log.error("Failed to restart environment $envId", e)
-                dao.updateState(
-                    id = envId,
-                    state = EnvironmentState.FAILED.name,
-                    timestamp = System.currentTimeMillis(),
-                    failureMessage = e.message ?: "Restart failed",
-                )
-                _errorMessage.tryEmit("Failed to restart: ${e.message}")
+                if (startMode == StartMode.GUI && (e is GuiNotInstalledError || e is GuiInstallFailedError || e is GuiValidationFailedError || e is GuiInstallInProgressError)) {
+                    dao.updateState(
+                        id = envId,
+                        state = EnvironmentState.READY.name,
+                        timestamp = System.currentTimeMillis(),
+                        failureMessage = null,
+                    )
+                    when (e) {
+                        is GuiNotInstalledError -> {
+                            _guiStates.update { it + (envId to GuiState.NOT_INSTALLED) }
+                            _errorMessage.tryEmit("GUI is not installed. Tap 'Install GUI' to set up the desktop.")
+                        }
+                        is GuiInstallFailedError -> {
+                            _guiStates.update { it + (envId to GuiState.FAILED) }
+                            _errorMessage.tryEmit("GUI installation failed: ${e.reason}. Tap 'Repair GUI' or view logs.")
+                        }
+                        is GuiValidationFailedError -> {
+                            _guiStates.update { it + (envId to GuiState.FAILED) }
+                            _errorMessage.tryEmit("GUI validation failed: ${e.details}. Tap 'Repair GUI' to fix.")
+                        }
+                        is GuiInstallInProgressError -> {
+                            _errorMessage.tryEmit("GUI installation is in progress. Please wait.")
+                        }
+                    }
+                } else {
+                    dao.updateState(
+                        id = envId,
+                        state = EnvironmentState.FAILED.name,
+                        timestamp = System.currentTimeMillis(),
+                        failureMessage = e.message ?: "Restart failed",
+                    )
+                    _errorMessage.tryEmit("Failed to restart: ${e.message}")
+                }
             }
         }
     }
+
+    fun getGuiState(environment: Environment): GuiState {
+        val cached = _guiStates.value[environment.id.value]
+        if (cached != null) return cached
+        val status = guiInstaller.checkStatus(environment)
+        _guiStates.update { it + (environment.id.value to status) }
+        return status
+    }
+
+    fun installGui(environment: Environment) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val envId = environment.id.value
+            try {
+                _guiStates.update { it + (envId to GuiState.INSTALLING) }
+                _guiInstallProgress.update { it + (envId to 0.05f) }
+                _guiInstallLogs.update { it + (envId to listOf("Starting GUI installation for ${environment.name}...")) }
+
+                val result = guiInstaller.install(
+                    environment = environment,
+                    onProgress = { progress, _ ->
+                        _guiInstallProgress.update { it + (envId to progress) }
+                    },
+                    onLog = { logLine ->
+                        _guiInstallLogs.update { current ->
+                            val list = (current[envId] ?: emptyList()) + logLine
+                            current + (envId to list.takeLast(500))
+                        }
+                    },
+                )
+                _guiStates.update { it + (envId to result) }
+                if (result == GuiState.INSTALLED) {
+                    _errorMessage.tryEmit("GUI installed successfully!")
+                } else {
+                    _errorMessage.tryEmit("GUI installation failed. Check logs for details.")
+                }
+            } catch (e: Exception) {
+                log.error("Exception in installGui for $envId", e)
+                _guiStates.update { it + (envId to GuiState.FAILED) }
+                _errorMessage.tryEmit("GUI installation error: ${e.message}")
+            }
+        }
+    }
+
+    fun repairGui(environment: Environment) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val envId = environment.id.value
+            try {
+                _guiStates.update { it + (envId to GuiState.REPAIRING) }
+                _guiInstallProgress.update { it + (envId to 0.1f) }
+                _guiInstallLogs.update { it + (envId to listOf("Repairing GUI for ${environment.name}...")) }
+
+                val result = guiInstaller.repair(
+                    environment = environment,
+                    onProgress = { progress, _ ->
+                        _guiInstallProgress.update { it + (envId to progress) }
+                    },
+                    onLog = { logLine ->
+                        _guiInstallLogs.update { current ->
+                            val list = (current[envId] ?: emptyList()) + logLine
+                            current + (envId to list.takeLast(500))
+                        }
+                    },
+                )
+                _guiStates.update { it + (envId to result) }
+                if (result == GuiState.INSTALLED) {
+                    _errorMessage.tryEmit("GUI repaired successfully!")
+                } else {
+                    _errorMessage.tryEmit("GUI repair failed. Check logs for details.")
+                }
+            } catch (e: Exception) {
+                log.error("Exception in repairGui for $envId", e)
+                _guiStates.update { it + (envId to GuiState.FAILED) }
+                _errorMessage.tryEmit("GUI repair error: ${e.message}")
+            }
+        }
+    }
+
+    fun getGuiInstallLog(environment: Environment): File? = guiInstaller.getLog(environment)
 
     fun updateConfiguration(environment: Environment, config: EnvironmentConfiguration) {
         viewModelScope.launch(Dispatchers.IO) {

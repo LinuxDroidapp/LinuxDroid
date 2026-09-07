@@ -110,7 +110,39 @@ Java_com_linuxdroid_native_1bridge_NativeBridge_nativeGetAbi(
 JNIEXPORT jint JNICALL
 Java_com_linuxdroid_native_1bridge_NativeBridge_nativeSendSignal(
     [[maybe_unused]] JNIEnv* env, [[maybe_unused]] jclass clazz, jint pid, jint signal) {
-    if (pid <= 0) return EINVAL;
+    if (pid <= 1) return EINVAL;
+    if (signal < 0 || signal > 64) return EINVAL;
+
+    // Process ownership verification via /proc/<pid>/status
+    std::string procPath = "/proc/" + std::to_string(pid) + "/status";
+    std::ifstream procStatus(procPath);
+    if (!procStatus.is_open()) {
+        if (errno == ENOENT) return ESRCH;
+        return EPERM;
+    }
+
+    std::string line;
+    uid_t appUid = getuid();
+    bool uidVerified = false;
+    while (std::getline(procStatus, line)) {
+        if (line.rfind("Uid:", 0) == 0) {
+            std::istringstream iss(line);
+            std::string label;
+            uid_t realUid;
+            if (iss >> label >> realUid) {
+                if (realUid == appUid) {
+                    uidVerified = true;
+                }
+            }
+            break;
+        }
+    }
+    procStatus.close();
+
+    if (!uidVerified) {
+        return EPERM;
+    }
+
     if (kill((pid_t)pid, (int)signal) != 0) {
         return errno;
     }
@@ -443,6 +475,12 @@ Java_com_linuxdroid_native_1bridge_NativeBridge_nativeSendKeyEvent(
     linuxdroid::InputBridge::getInstance().sendKeyEvent(keyCode, isDown, metaState, unicodeChar);
 }
 
+JNIEXPORT void JNICALL
+Java_com_linuxdroid_native_1bridge_NativeBridge_nativeResetInput(
+    [[maybe_unused]] JNIEnv* env, [[maybe_unused]] jclass clazz) {
+    linuxdroid::gui::GuiHost::getInstance().resetInput();
+}
+
 // ─── Audio ────────────────────────────────────────────────────────────────────
 
 JNIEXPORT jboolean JNICALL
@@ -641,6 +679,31 @@ Java_com_linuxdroid_native_1bridge_NativeBridge_nativeGetActiveWindows(
     }
     env->DeleteLocalRef(strCls);
     return result;
+}
+
+JNIEXPORT void JNICALL
+Java_com_linuxdroid_native_1bridge_NativeBridge_nativeSetOutputScale(
+    JNIEnv* env, [[maybe_unused]] jclass clazz, jint scale) {
+    (void)env;
+    linuxdroid::gui::GuiHost::getInstance().setOutputScale(static_cast<int32_t>(scale));
+}
+
+JNIEXPORT jint JNICALL
+Java_com_linuxdroid_native_1bridge_NativeBridge_nativeGetOutputScale(
+    JNIEnv* env, [[maybe_unused]] jclass clazz) {
+    (void)env;
+    return static_cast<jint>(linuxdroid::gui::GuiHost::getInstance().getOutputScale());
+}
+
+JNIEXPORT void JNICALL
+Java_com_linuxdroid_native_1bridge_NativeBridge_nativePerformWindowAction(
+    JNIEnv* env, [[maybe_unused]] jclass clazz, jlong windowId, jstring jaction) {
+    if (!jaction) return;
+    const char* actionStr = env->GetStringUTFChars(jaction, nullptr);
+    if (!actionStr) return;
+    std::string action(actionStr);
+    env->ReleaseStringUTFChars(jaction, actionStr);
+    linuxdroid::gui::GuiHost::getInstance().enqueueWindowAction(static_cast<uint64_t>(windowId), action);
 }
 
 } // extern "C"

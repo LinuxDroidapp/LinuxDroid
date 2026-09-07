@@ -78,6 +78,22 @@ export LANG="§{LANG:-C.UTF-8}"
 export LC_ALL="§{LC_ALL:-C.UTF-8}"
 export TMPDIR="/tmp"
 
+# Establish compliant XDG_RUNTIME_DIR (/run/user/<uid>) with strict 0700 permissions
+USER_UID=§(id -u 2>/dev/null || echo 0)
+if [ -z "§{XDG_RUNTIME_DIR:-}" ] || [ "§{XDG_RUNTIME_DIR}" = "/tmp" ]; then
+    export XDG_RUNTIME_DIR="/run/user/§{USER_UID}"
+fi
+if [ ! -d "§{XDG_RUNTIME_DIR}" ]; then
+    mkdir -p "§{XDG_RUNTIME_DIR}" 2>/dev/null || true
+fi
+chmod 0700 "§{XDG_RUNTIME_DIR}" 2>/dev/null || true
+
+export WAYLAND_DISPLAY="§{WAYLAND_DISPLAY:-wayland-0}"
+export DISPLAY="§{DISPLAY:-:0}"
+export XDG_SESSION_TYPE="§{XDG_SESSION_TYPE:-wayland}"
+export XDG_CURRENT_DESKTOP="§{XDG_CURRENT_DESKTOP:-LDDE}"
+export XDG_SESSION_DESKTOP="§{XDG_SESSION_DESKTOP:-LDDE}"
+
 # Scrub Android host environment leakage if present
 unset ANDROID_ROOT ANDROID_DATA ANDROID_STORAGE ASEC_MOUNTPOINT BOOTCLASSPATH DEX2OATBOOTCLASSPATH EXTERNAL_STORAGE
 
@@ -96,13 +112,52 @@ if [ -d "§HOOKS_DIR" ]; then
 fi
 
 # 4. Hand over to requested workload
-if [ §# -gt 0 ]; then
-    init_log "Handing over to requested workload: §1"
-    exec "§@"
-else
-    init_log "No command specified; starting default login shell: §SHELL"
-    exec "§SHELL" -l
+echo "[INFO] Guest ready"
+
+START_MODE="§{LINUXDROID_START_MODE:-}"
+if [ -z "§START_MODE" ]; then
+    if [ "§1" = "GUI" ] || [ "§1" = "CLI" ]; then
+        START_MODE="§1"
+        shift
+    fi
 fi
+
+if [ -z "§START_MODE" ]; then
+    init_err "Missing startMode: LINUXDROID_START_MODE is not set. Deterministic startup requires 'GUI' or 'CLI'."
+    exit 1
+fi
+
+echo "[GUEST-INIT] startMode=§START_MODE" >&2
+
+case "§START_MODE" in
+    GUI)
+        echo "[GUEST-INIT] Handing over to LDDM" >&2
+        echo "[LDDM] Starting graphical session"
+        if [ §# -gt 0 ] && [ "§1" != "GUI" ]; then
+            init_log "Handing over to GUI workload: §1"
+            exec "§@"
+        elif [ -x /usr/bin/lddm ]; then
+            exec /usr/bin/lddm
+        elif [ -x /usr/local/bin/lddm ]; then
+            exec /usr/local/bin/lddm
+        else
+            exec lddm
+        fi
+        ;;
+    CLI)
+        echo "[GUEST-INIT] Starting CLI session" >&2
+        if [ §# -gt 0 ] && [ "§1" != "CLI" ]; then
+            init_log "Handing over to CLI workload: §1"
+            exec "§@"
+        else
+            exec "§SHELL" -l
+        fi
+        ;;
+    *)
+        init_err "Invalid startMode: '§START_MODE'. Only 'GUI' and 'CLI' are allowed."
+        exit 1
+        ;;
+esac
 """.trimIndent().replace('§', '$') + "\n"
 }
 

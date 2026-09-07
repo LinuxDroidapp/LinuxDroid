@@ -280,9 +280,11 @@ void GuiHost::setNativeWindow(ANativeWindow* window, int width, int height) {
     }
 
     if (width > 0 && height > 0) {
-        DesktopSession::getInstance().setOutputGeometry(width, height, 1);
+        int32_t scale = output_scale_.load();
+        if (scale <= 0) scale = 1;
+        DesktopSession::getInstance().setOutputGeometry(width, height, scale);
         if (shell_client_) {
-            shell_client_->setOutputGeometry(width, height, 1);
+            shell_client_->setOutputGeometry(width, height, scale);
             shell_client_->renderAll();
         }
     }
@@ -311,9 +313,11 @@ void GuiHost::changeNativeWindow(ANativeWindow* window, int width, int height, i
     }
 
     if (width > 0 && height > 0) {
-        DesktopSession::getInstance().setOutputGeometry(width, height, 1);
+        int32_t scale = output_scale_.load();
+        if (scale <= 0) scale = 1;
+        DesktopSession::getInstance().setOutputGeometry(width, height, scale);
         if (shell_client_) {
-            shell_client_->setOutputGeometry(width, height, 1);
+            shell_client_->setOutputGeometry(width, height, scale);
             shell_client_->renderAll();
         }
     }
@@ -321,6 +325,30 @@ void GuiHost::changeNativeWindow(ANativeWindow* window, int width, int height, i
     if (vsync_bridge_ != nullptr) {
         linuxdroid_vsync_bridge_resume(vsync_bridge_);
     }
+}
+
+void GuiHost::setOutputScale(int32_t scale) {
+    if (scale <= 0) scale = 1;
+    if (scale > 4) scale = 4;
+    output_scale_.store(scale);
+    std::lock_guard<std::mutex> lock(window_mutex_);
+    if (output_ != nullptr) {
+        output_->current_scale = scale;
+        if (window_width_ > 0 && window_height_ > 0) {
+            linuxdroid_output_resize(output_, window_width_, window_height_);
+        }
+    }
+    if (window_width_ > 0 && window_height_ > 0) {
+        DesktopSession::getInstance().setOutputGeometry(window_width_, window_height_, scale);
+        if (shell_client_) {
+            shell_client_->setOutputGeometry(window_width_, window_height_, scale);
+            shell_client_->renderAll();
+        }
+    }
+}
+
+int32_t GuiHost::getOutputScale() const {
+    return output_scale_.load();
 }
 
 void GuiHost::destroyNativeWindow() {
@@ -679,7 +707,10 @@ void GuiHost::workerMain() {
         }
     }
 
-    if (linuxdroid_output_set_mode(output_, out_w, out_h, LINUXDROID_DEFAULT_REFRESH_MHZ, 1) < 0) {
+    int32_t init_scale = output_scale_.load();
+    if (init_scale <= 0) init_scale = 1;
+
+    if (linuxdroid_output_set_mode(output_, out_w, out_h, LINUXDROID_DEFAULT_REFRESH_MHZ, init_scale) < 0) {
         LOGE("WESTON_START_FAILED: failed to set mode on LinuxDroid output");
         weston_compositor_destroy(compositor_);
         compositor_ = nullptr;
@@ -780,9 +811,16 @@ void GuiHost::workerMain() {
         enqueueWindowAction(window_id, action);
     });
 
-    // Start native DesktopSession
-    DesktopSession::getInstance().setOutputGeometry(out_w, out_h, 1);
-    DesktopSession::getInstance().start(socket_name);
+    // Start native DesktopSession only if internal fallback shell is explicitly requested.
+    // In production LinuxDroid, LDDE is the authoritative Wayland desktop shell running inside the guest.
+    const char* enable_internal = std::getenv("LINUXDROID_ENABLE_INTERNAL_SHELL");
+    if (enable_internal && std::strcmp(enable_internal, "1") == 0) {
+        LOGI("Starting internal fallback DesktopSession");
+        DesktopSession::getInstance().setOutputGeometry(out_w, out_h, init_scale);
+        DesktopSession::getInstance().start(socket_name);
+    } else {
+        LOGI("Internal fallback DesktopSession disabled (LDDE guest desktop environment active)");
+    }
 
     // 12. Initialization successful: signal RUNNING to waiter
     {
@@ -916,10 +954,18 @@ void GuiHost::processQueuedInput() {
             }
 
             case InputEventType::MOUSE_MOVE: {
-                int w = output_ ? output_->width : window_width_;
-                int h = output_ ? output_->height : window_height_;
-                double cx = InputTranslator::clampCoordinate(evt.x, w);
-                double cy = InputTranslator::clampCoordinate(evt.y, h);
+                int out_w = output_ ? output_->width : window_width_;
+                int out_h = output_ ? output_->height : window_height_;
+                float in_x = evt.x;
+                float in_y = evt.y;
+                if (window_width_ > 0 && out_w > 0 && window_width_ != out_w) {
+                    in_x = (in_x * static_cast<float>(out_w)) / static_cast<float>(window_width_);
+                }
+                if (window_height_ > 0 && out_h > 0 && window_height_ != out_h) {
+                    in_y = (in_y * static_cast<float>(out_h)) / static_cast<float>(window_height_);
+                }
+                double cx = InputTranslator::clampCoordinate(in_x, out_w);
+                double cy = InputTranslator::clampCoordinate(in_y, out_h);
                 struct weston_coord_global pos = { .c = { .x = cx, .y = cy } };
                 struct weston_pointer_motion_event motion_event = {};
                 motion_event.base.ts = ts;
@@ -933,6 +979,26 @@ void GuiHost::processQueuedInput() {
 
             case InputEventType::MOUSE_DOWN:
             case InputEventType::MOUSE_UP: {
+                int out_w = output_ ? output_->width : window_width_;
+                int out_h = output_ ? output_->height : window_height_;
+                float in_x = evt.x;
+                float in_y = evt.y;
+                if (window_width_ > 0 && out_w > 0 && window_width_ != out_w) {
+                    in_x = (in_x * static_cast<float>(out_w)) / static_cast<float>(window_width_);
+                }
+                if (window_height_ > 0 && out_h > 0 && window_height_ != out_h) {
+                    in_y = (in_y * static_cast<float>(out_h)) / static_cast<float>(window_height_);
+                }
+                double cx = InputTranslator::clampCoordinate(in_x, out_w);
+                double cy = InputTranslator::clampCoordinate(in_y, out_h);
+                struct weston_coord_global pos = { .c = { .x = cx, .y = cy } };
+                struct weston_pointer_motion_event motion_event = {};
+                motion_event.base.ts = ts;
+                motion_event.base.seat = seat;
+                motion_event.mask = WESTON_POINTER_MOTION_ABS;
+                motion_event.abs = pos;
+                notify_motion(&motion_event);
+
                 uint32_t button = InputTranslator::androidButtonToLinux(evt.id);
                 struct weston_pointer_button_event btn_event = {};
                 btn_event.base.ts = ts;
@@ -971,10 +1037,18 @@ void GuiHost::processQueuedInput() {
             case InputEventType::TOUCH_MOVE:
             case InputEventType::TOUCH_UP: {
                 if (touch_dev != nullptr) {
-                    int w = output_ ? output_->width : window_width_;
-                    int h = output_ ? output_->height : window_height_;
-                    double cx = InputTranslator::clampCoordinate(evt.x, w);
-                    double cy = InputTranslator::clampCoordinate(evt.y, h);
+                    int out_w = output_ ? output_->width : window_width_;
+                    int out_h = output_ ? output_->height : window_height_;
+                    float in_x = evt.x;
+                    float in_y = evt.y;
+                    if (window_width_ > 0 && out_w > 0 && window_width_ != out_w) {
+                        in_x = (in_x * static_cast<float>(out_w)) / static_cast<float>(window_width_);
+                    }
+                    if (window_height_ > 0 && out_h > 0 && window_height_ != out_h) {
+                        in_y = (in_y * static_cast<float>(out_h)) / static_cast<float>(window_height_);
+                    }
+                    double cx = InputTranslator::clampCoordinate(in_x, out_w);
+                    double cy = InputTranslator::clampCoordinate(in_y, out_h);
                     struct weston_coord_global pos = { .c = { .x = cx, .y = cy } };
                     int32_t ttype = WL_TOUCH_MOTION;
                     if (evt.type == InputEventType::TOUCH_DOWN) ttype = WL_TOUCH_DOWN;
@@ -999,8 +1073,19 @@ void GuiHost::processQueuedInput() {
                 }
                 break;
             }
+
+            case InputEventType::RESET_INPUT: {
+                if (backend_ != nullptr) {
+                    linuxdroid_backend_reset_input(backend_);
+                }
+                break;
+            }
         }
     }
+}
+
+void GuiHost::resetInput() {
+    InputBridge::getInstance().resetInput();
 }
 
 void GuiHost::enqueueWindowAction(uint64_t window_id, const std::string& action) {
@@ -1126,7 +1211,13 @@ bool GuiHost::restartDesktopShell() {
         return false;
     }
 
-    LOGI("SHELL_RESTART_BEGIN: restarting desktop shell client");
+    const char* enable_internal = std::getenv("LINUXDROID_ENABLE_INTERNAL_SHELL");
+    if (!enable_internal || std::strcmp(enable_internal, "1") != 0) {
+        LOGI("SHELL_RESTART: LDDE is supervised by LDDM inside guest userspace; internal shell restart no-op");
+        return true;
+    }
+
+    LOGI("SHELL_RESTART_BEGIN: restarting internal fallback desktop shell client");
     DesktopSession::getInstance().stop();
     if (shell_client_) {
         shell_client_->stop();
@@ -1136,7 +1227,9 @@ bool GuiHost::restartDesktopShell() {
     int32_t out_w = output_ ? output_->width : LINUXDROID_DEFAULT_WIDTH;
     int32_t out_h = output_ ? output_->height : LINUXDROID_DEFAULT_HEIGHT;
 
-    DesktopSession::getInstance().setOutputGeometry(out_w, out_h, 1);
+    int32_t restart_scale = output_scale_.load();
+    if (restart_scale <= 0) restart_scale = 1;
+    DesktopSession::getInstance().setOutputGeometry(out_w, out_h, restart_scale);
     bool ok = DesktopSession::getInstance().start("wayland-0");
     if (ok) {
         LOGI("SHELL_RESTART_SUCCESS: desktop shell client restarted successfully");
