@@ -260,6 +260,13 @@ class LocalRootfsImporter(
                     PostInstallScript.writeInstallSecret(finalRootfsDir, installConfig.password)
                 }
 
+                // Write CLI ready marker for downstream GUI installer & validator compatibility
+                val postInstallMarker = File(finalRootfsDir, "etc/linuxdroid/POST_INSTALL_COMPLETE")
+                postInstallMarker.parentFile?.mkdirs()
+                if (!postInstallMarker.exists()) {
+                    postInstallMarker.writeText("STATUS=LOCAL_ROOTFS_CLI_READY\nTIMESTAMP=${System.currentTimeMillis()}\n")
+                }
+
                 // 10. Record metadata and transition to ROOTFS_IMPORTED
                 val metadata = RootfsMetadata(
                     distribution = distroId,

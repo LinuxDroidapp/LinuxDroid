@@ -147,8 +147,16 @@ class GuiInstaller(
             try {
                 // 1. Resolve and stage LDDM & LDDE .deb packages
                 onProgress(0.15f, "Staging LinuxDroid GUI packages…")
-                val lddmDeb = lddmDebOverride ?: packageInstaller.resolvePackageDeb("linuxdroid-display-manager", environment)
-                val lddeDeb = lddeDebOverride ?: packageInstaller.resolvePackageDeb("linuxdroid-desktop-environment", environment)
+                val lddmDeb = lddmDebOverride
+                    ?: packageInstaller.resolvePackageDeb("linuxdroid-display-manager", environment)
+                    ?: File(rootfsDir, "root/linuxdroid/packages").listFiles()?.firstOrNull { it.name.startsWith("linuxdroid-display-manager") && it.name.endsWith(".deb") }
+                    ?: File(rootfsDir, "root/linuxdroid/packages").listFiles()?.firstOrNull { it.name.startsWith("LDDM") && it.name.endsWith(".deb") }
+
+                val lddeDeb = lddeDebOverride
+                    ?: packageInstaller.resolvePackageDeb("linuxdroid-desktop-environment", environment)
+                    ?: File(rootfsDir, "root/linuxdroid/packages").listFiles()?.firstOrNull { it.name.startsWith("linuxdroid-desktop-environment") && it.name.endsWith(".deb") }
+                    ?: File(rootfsDir, "root/linuxdroid/packages").listFiles()?.firstOrNull { it.name.startsWith("LDDE") && it.name.endsWith(".deb") }
+
                 GuiInstallScript.stageGuiPackages(rootfsDir, lddmDeb, lddeDeb)
                 GuiInstallScript.writeScript(rootfsDir)
 
@@ -156,7 +164,11 @@ class GuiInstaller(
                     onProgress(0.25f, "Executing in-guest GUI installer…")
                     onLog(">>> [GUI_INSTALL] Starting in-guest GUI installer via CLI runtime")
 
-                    val cmd = listOf("/sbin/linuxdroid-init", "CLI", "/bin/bash", "/etc/linuxdroid/gui-install.sh")
+                    val guestShell = when {
+                        File(rootfsDir, "bin/bash").exists() || File(rootfsDir, "usr/bin/bash").exists() -> "/bin/bash"
+                        else -> "/bin/sh"
+                    }
+                    val cmd = listOf("/sbin/linuxdroid-init", "CLI", guestShell, "/etc/linuxdroid/gui-install.sh")
                     val extraEnv = mapOf(
                         "DEBIAN_FRONTEND" to "noninteractive",
                         "LINUXDROID_START_MODE" to "CLI",

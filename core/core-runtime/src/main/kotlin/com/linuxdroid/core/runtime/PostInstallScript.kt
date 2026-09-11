@@ -43,56 +43,75 @@ run_cmd() {
     local stage="§1"
     local log_cmd="§2"
     shift 2
+
     local start_ts
-    start_ts="§(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    start_ts="§(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date 2>/dev/null || echo "1970-01-01T00:00:00Z")"
+    [ -z "§start_ts" ] && start_ts="1970-01-01T00:00:00Z"
+
     local start_sec
-    start_sec="§(date +%s%N 2>/dev/null || date +%s)"
+    start_sec="§(date +%s%N 2>/dev/null || date +%s 2>/dev/null || echo 0)"
+
     echo "[POSTINSTALL][START][§stage]"
     echo "command=§log_cmd"
     echo "timestamp=§start_ts"
 
-    local err_file
-    err_file="§(mktemp /tmp/postinstall_err.XXXXXX 2>/dev/null || echo /tmp/postinstall_err.§§)"
+    mkdir -p /tmp /etc/linuxdroid 2>/dev/null || true
+    local err_file="/tmp/postinstall_§{stage}_§§.err"
+    if ! touch "§err_file" 2>/dev/null; then
+        err_file="/etc/linuxdroid/postinstall_§{stage}_§§.err"
+        touch "§err_file" 2>/dev/null || true
+    fi
     local exit_code=0
 
     if "§@" 2>"§err_file"; then
         local end_sec
-        end_sec="§(date +%s%N 2>/dev/null || date +%s)"
+        end_sec="§(date +%s%N 2>/dev/null || date +%s 2>/dev/null || echo 0)"
         local dur_ms=1
         if [ "§{#start_sec}" -gt 10 ] && [ "§{#end_sec}" -gt 10 ]; then
             dur_ms=§(( (end_sec - start_sec) / 1000000 ))
         fi
         [ "§dur_ms" -le 0 ] && dur_ms=1
+        local end_ts
+        end_ts="§(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date 2>/dev/null || echo "§start_ts")"
+        [ -z "§end_ts" ] && end_ts="§start_ts"
         echo "[POSTINSTALL][SUCCESS][§stage]"
         echo "exit_code=0"
         echo "duration_ms=§dur_ms"
-        echo "timestamp=§(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        echo "timestamp=§end_ts"
         rm -f "§err_file" 2>/dev/null || true
         return 0
     else
         exit_code=§?
         local end_sec
-        end_sec="§(date +%s%N 2>/dev/null || date +%s)"
+        end_sec="§(date +%s%N 2>/dev/null || date +%s 2>/dev/null || echo 0)"
         local dur_ms=1
         if [ "§{#start_sec}" -gt 10 ] && [ "§{#end_sec}" -gt 10 ]; then
             dur_ms=§(( (end_sec - start_sec) / 1000000 ))
         fi
         [ "§dur_ms" -le 0 ] && dur_ms=1
-        local err_msg
-        err_msg="§(cat "§err_file" 2>/dev/null || echo "Unknown error")"
+        local err_msg=""
+        if [ -s "§err_file" ]; then
+            err_msg="§(cat "§err_file" 2>/dev/null || true)"
+        fi
+        if [ -z "§err_msg" ]; then
+            err_msg="Command failed with exit code §exit_code"
+        fi
         rm -f "§err_file" 2>/dev/null || true
+        local fail_ts
+        fail_ts="§(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date 2>/dev/null || echo "§start_ts")"
+        [ -z "§fail_ts" ] && fail_ts="§start_ts"
         echo "[POSTINSTALL][FAIL][§stage]"
         echo "exit_code=§exit_code"
         echo "duration_ms=§dur_ms"
         echo "stderr=§err_msg"
-        echo "timestamp=§(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        echo "timestamp=§fail_ts"
         exit §exit_code
     fi
 }
 
 echo "================================================================================"
 echo "LINUXDROID IN-GUEST CLI PROVISIONING STARTING"
-echo "Timestamp: §(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+echo "Timestamp: §(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date 2>/dev/null || echo "1970-01-01T00:00:00Z")"
 echo "Note: GUI packages are NOT installed here. Use GUI installer for graphical layer."
 echo "================================================================================"
 
