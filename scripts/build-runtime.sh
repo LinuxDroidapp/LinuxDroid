@@ -31,10 +31,12 @@ echo "------------------------------------------------------------------------"
 export ANDROID_HOME="${ANDROID_HOME:-/home/codespace/Android/Sdk}"
 if [[ -z "${ANDROID_NDK_ROOT:-}" ]]; then
     for candidate in \
-        "/home/codespace/Android/Sdk/ndk/29.0.14206865" \
+        "/home/codespace/Android/Sdk/ndk/30.0.16248370" \
         "/home/codespace/Android/Sdk/ndk/30.0.16138531" \
-        "${ANDROID_HOME}/ndk/29.0.14206865" \
+        "/home/codespace/Android/Sdk/ndk/29.0.14206865" \
+        "${ANDROID_HOME}/ndk/30.0.16248370" \
         "${ANDROID_HOME}/ndk/30.0.16138531" \
+        "${ANDROID_HOME}/ndk/29.0.14206865" \
         $(ls -d "${ANDROID_HOME}/ndk/"* 2>/dev/null | sort -V | tail -n1)
     do
         if [[ -n "$candidate" && -d "$candidate" ]]; then

@@ -28,9 +28,12 @@ echo "========================================================================"
 NDK_ROOT="${ANDROID_NDK_ROOT:-${NDK_ROOT:-}}"
 if [[ -z "$NDK_ROOT" || ! -d "$NDK_ROOT" ]]; then
     for candidate in \
-        "/home/codespace/Android/Sdk/ndk/29.0.14206865" \
+        "/home/codespace/Android/Sdk/ndk/30.0.16248370" \
         "/home/codespace/Android/Sdk/ndk/30.0.16138531" \
+        "/home/codespace/Android/Sdk/ndk/29.0.14206865" \
+        "${ANDROID_HOME:-/nonexistent}/ndk/30.0.16248370" \
         "${ANDROID_HOME:-/nonexistent}/ndk/29.0.14206865" \
+        "$HOME/Android/Sdk/ndk/30.0.16248370" \
         "$HOME/Android/Sdk/ndk/29.0.14206865" \
         $(ls -d "${ANDROID_HOME:-/nonexistent}/ndk/"* 2>/dev/null | sort -V | tail -n1) \
         $(ls -d "$HOME/Android/Sdk/ndk/"* 2>/dev/null | sort -V | tail -n1)

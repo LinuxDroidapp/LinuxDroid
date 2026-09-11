@@ -20,7 +20,7 @@ All components are classified according to the migration charter:
 | **Virtual Keyboard** | **ADAPT** | Implement full Linux desktop key cluster (Esc, Tab, Ctrl, Alt, Super, F1-F12, terminal shortcuts) on Android UI. |
 | **LDDM** (`vendor/LDDM`) | **MIGRATE** | Decouple from spawning `/usr/bin/weston` child process; check host native libweston-17 Wayland socket readiness; supervise LDDE. |
 | **GUI Installer** | **MIGRATE** | Remove obsolete `apt install weston` and `weston.ini` logic; validate LDDM/LDDE integration idempotently. |
-| **Build Configuration** | **MIGRATE** | Update `libs.versions.toml` to minSdk 36, compileSdk 37, targetSdk 37, and NDK r29 stable (`29.0.14206865`). |
+| **Build Configuration** | **MIGRATE** | Update `libs.versions.toml` to minSdk 36, compileSdk 37, targetSdk 37, and NDK r30 stable (`30.0.16248370`). |
 | **Rootfs** | **OUT OF SCOPE** | Externally built custom ARM64 Linux rootfs. LinuxDroid merely mounts and launches it. |
 
 ---
@@ -84,5 +84,5 @@ All components are classified according to the migration charter:
 - Baseline SDK: compileSdk 36, minSdk 36, targetSdk 36.
 - Target SDK: compileSdk 37, minSdk 36, targetSdk 37.
 - Baseline NDK: 30.0.16138531 (NDK r30 RC).
-- Target NDK: 29.0.14206865 (NDK r29 stable).
+- Target NDK: 30.0.16248370 (NDK r30 stable).
 

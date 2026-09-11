@@ -8,7 +8,7 @@
 | **Target SDK** | `37` | `libs.versions.targetSdk = "37"`; ensures compliance with latest platform behavior. |
 | **Compile SDK** | `37` | `libs.versions.compileSdk = "37"`. |
 | **Primary ABI** | `arm64-v8a` | Exclusive 64-bit ARM64 target. `abiFilters += listOf("arm64-v8a")`. |
-| **Production NDK** | `29.0.14206865` (r29 stable) | Pinned in `libs.versions.ndk`. Stable compiler, standard libc++ toolchain. |
+| **Production NDK** | `30.0.16248370` (r30 stable) | Pinned in `libs.versions.ndk`. Stable compiler, standard libc++ toolchain. |
 | **CMake Version** | `4.4.3` | Pinned in `libs.versions.cmake`. |
 | **AGP Version** | `9.3.2` | Gradle Android Plugin. |
 | **Java / Kotlin** | Java 21 / Kotlin 2.3.20 | JVM target 17. |

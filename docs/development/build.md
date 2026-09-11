@@ -2,7 +2,7 @@
 
 ## 1. Prerequisites
 - **Android SDK:** Platform API 37 (`minSdk = 36`, `compileSdk = 37`, `targetSdk = 37`)
-- **Android NDK:** Version `29.0.14206865` (NDK r29 stable, Clang 20)
+- **Android NDK:** Version `30.0.16248370` (NDK r30 stable, Clang 21)
 - **CMake:** Version `3.22.1+` (or `4.4.3` via SDK)
 - **JDK:** OpenJDK 21 (Temurin / SDKMAN)
 - **Gradle:** 9.7.1 (via Gradle Wrapper `./gradlew`)
@@ -48,7 +48,7 @@ Set environment paths and assemble the APK:
 ```bash
 # Set Android SDK and NDK environment variables
 export ANDROID_HOME=/path/to/android-sdk
-export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/29.0.14206865
+export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/30.0.16248370
 
 # Validate native artifacts
 ./scripts/validate-artifacts.sh
