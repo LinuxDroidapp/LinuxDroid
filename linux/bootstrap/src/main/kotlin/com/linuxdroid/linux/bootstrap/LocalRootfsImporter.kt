@@ -208,10 +208,40 @@ class LocalRootfsImporter(
                     throw FilesystemError(finalRootfsDir.path, "Failed to promote staging rootfs to active directory")
                 }
 
-                // 7. Inject persistent guest init and runtime infrastructure (/sbin/linuxdroid-init, /tmp, /run)
-                onProgress(0.80f, "Injecting LinuxDroid guest init…")
+                // 7. Check for and remove any existing /sbin/linuxdroid-init in local rootfs, then inject app's authoritative linuxdroid-init
+                onProgress(0.80f, "Configuring LinuxDroid guest init…")
+                val sbinInit = File(finalRootfsDir, "sbin/linuxdroid-init")
+                val usrSbinInit = File(finalRootfsDir, "usr/sbin/linuxdroid-init")
+                val existingInitDetected = sbinInit.exists() || Files.isSymbolicLink(sbinInit.toPath()) ||
+                        usrSbinInit.exists() || Files.isSymbolicLink(usrSbinInit.toPath())
+
+                if (existingInitDetected) {
+                    log.info("[LOCAL_IMPORT] Existing /sbin/linuxdroid-init detected in imported rootfs; removing old init before installing app's linuxdroid-init")
+                    onLog(">>> [SETUP] Existing /sbin/linuxdroid-init detected in imported rootfs; removing it...")
+                    try {
+                        sbinInit.setWritable(true)
+                        Files.deleteIfExists(sbinInit.toPath())
+                    } catch (_: Exception) {
+                        sbinInit.delete()
+                    }
+                    try {
+                        usrSbinInit.setWritable(true)
+                        Files.deleteIfExists(usrSbinInit.toPath())
+                    } catch (_: Exception) {
+                        usrSbinInit.delete()
+                    }
+                    onLog(">>> [SETUP] Removed existing /sbin/linuxdroid-init.")
+                }
+
                 runtimeSetup.setup(finalRootfsDir)
-                onLog(">>> [SETUP] Injected /sbin/linuxdroid-init (0755)")
+
+                val injectedInit = File(finalRootfsDir, "sbin/linuxdroid-init")
+                if (!injectedInit.exists() || !injectedInit.canExecute()) {
+                    val errMsg = "Failed to install executable /sbin/linuxdroid-init into rootfs"
+                    log.error("[LOCAL_IMPORT] $errMsg")
+                    throw RuntimeError(environmentId, errMsg)
+                }
+                onLog(">>> [SETUP] Injected app's authoritative /sbin/linuxdroid-init (0755)")
 
                 // 8. Inject setup payload: /root/linuxdroid/setup-rootfs.sh and packages/*.deb
                 onProgress(0.85f, "Injecting setup payload and packages…")

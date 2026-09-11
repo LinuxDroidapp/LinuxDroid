@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.common.truth.Truth.assertThat
 import com.linuxdroid.core.filesystem.EnvironmentStorage
 import com.linuxdroid.core.model.*
+import com.linuxdroid.core.runtime.GuestInit
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
@@ -60,6 +61,7 @@ class LocalRootfsImporterTest {
         outputFile: File,
         nestedPrefix: String = "",
         includeArm64Linker: Boolean = true,
+        extraFiles: Map<String, ByteArray> = emptyMap(),
     ) {
         FileOutputStream(outputFile).use { fos ->
             GzipCompressorOutputStream(fos).use { gzos ->
@@ -133,6 +135,16 @@ class LocalRootfsImporterTest {
                         }
                         tarOut.putArchiveEntry(eLinker)
                         tarOut.write(elfHeader)
+                        tarOut.closeArchiveEntry()
+                    }
+
+                    for ((path, bytes) in extraFiles) {
+                        val entry = TarArchiveEntry("$p$path").apply {
+                            size = bytes.size.toLong()
+                            mode = 0b111101101
+                        }
+                        tarOut.putArchiveEntry(entry)
+                        tarOut.write(bytes)
                         tarOut.closeArchiveEntry()
                     }
                 }
@@ -244,5 +256,40 @@ class LocalRootfsImporterTest {
         val nonExistentEnv = env.copy(metadata = env.metadata.copy(id = EnvironmentId("ghost-env")))
         val state = importer.checkSetupState(nonExistentEnv)
         assertThat(state).isEqualTo(LocalRootfsState.NONE)
+    }
+
+    @Test
+    fun `importRootfs removes existing sbin linuxdroid-init and installs app authoritative guest init`() = runBlocking {
+        val archive = tempFolder.newFile("ubuntu-base-with-old-init.tar.gz")
+        val oldInitContent = "#!/bin/sh\necho OLD_UNSUPPORTED_INIT\nexit 1\n"
+        createValidTarGz(
+            outputFile = archive,
+            extraFiles = mapOf(
+                "sbin/linuxdroid-init" to oldInitContent.toByteArray(),
+            ),
+        )
+
+        val logOutput = mutableListOf<String>()
+        val result = importer.importRootfs(
+            archiveFile = archive,
+            environment = env,
+            onLog = { logOutput.add(it) },
+        )
+
+        assertThat(result.success).isTrue()
+
+        val rootfsDir = storage.rootfsDir(envId)
+        val guestInit = File(rootfsDir, "sbin/linuxdroid-init")
+        assertThat(guestInit.exists()).isTrue()
+        assertThat(guestInit.canExecute()).isTrue()
+
+        // Verify old init content was deleted and replaced with app's authoritative init
+        val installedContent = guestInit.readText()
+        assertThat(installedContent).doesNotContain("OLD_UNSUPPORTED_INIT")
+        assertThat(installedContent).isEqualTo(GuestInit.SCRIPT_CONTENT)
+
+        // Verify log output confirms detection and removal
+        assertThat(logOutput.any { it.contains("Existing /sbin/linuxdroid-init") }).isTrue()
+        assertThat(logOutput.any { it.contains("Removed existing /sbin/linuxdroid-init") }).isTrue()
     }
 }

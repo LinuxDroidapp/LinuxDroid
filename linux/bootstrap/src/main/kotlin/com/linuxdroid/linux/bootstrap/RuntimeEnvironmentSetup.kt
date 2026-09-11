@@ -27,11 +27,26 @@ class RuntimeEnvironmentSetup(
         // 1. Persistent Guest Init (/sbin/linuxdroid-init)
         val sbinDir = File(rootfsDir, "sbin").apply { mkdirs() }
         val initFile = File(sbinDir, "linuxdroid-init")
-        try {
-            Files.deleteIfExists(initFile.toPath())
-        } catch (_: Exception) {
-            initFile.delete()
+        val usrSbinInit = File(rootfsDir, "usr/sbin/linuxdroid-init")
+
+        val hadExistingInit = initFile.exists() || Files.isSymbolicLink(initFile.toPath()) ||
+                usrSbinInit.exists() || Files.isSymbolicLink(usrSbinInit.toPath())
+        if (hadExistingInit) {
+            log.info("[RUNTIME_SETUP] Existing /sbin/linuxdroid-init found in rootfs; removing old init before installing app's linuxdroid-init")
+            try {
+                initFile.setWritable(true)
+                Files.deleteIfExists(initFile.toPath())
+            } catch (_: Exception) {
+                initFile.delete()
+            }
+            try {
+                usrSbinInit.setWritable(true)
+                Files.deleteIfExists(usrSbinInit.toPath())
+            } catch (_: Exception) {
+                usrSbinInit.delete()
+            }
         }
+
         initFile.writeText(GuestInit.SCRIPT_CONTENT)
         initFile.setReadable(true, false)
         initFile.setExecutable(true, false)

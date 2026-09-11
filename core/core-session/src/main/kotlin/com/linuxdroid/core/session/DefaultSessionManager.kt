@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.file.Files
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -156,8 +157,14 @@ class DefaultSessionManager(
                 log.withEnvironment(environment.id).info("[RUNTIME] CLI session requested: using /bin/bash instead of lddm")
                 val rootfsDir = storage.rootfsDir(environment.id)
                 val initFile = File(rootfsDir, GuestInit.GUEST_INIT_PATH.removePrefix("/"))
-                if (!initFile.exists()) {
+                if (!initFile.exists() || runCatching { initFile.readText() }.getOrNull() != GuestInit.SCRIPT_CONTENT) {
                     initFile.parentFile?.mkdirs()
+                    try {
+                        initFile.setWritable(true)
+                        Files.deleteIfExists(initFile.toPath())
+                    } catch (_: Exception) {
+                        initFile.delete()
+                    }
                     initFile.writeText(GuestInit.SCRIPT_CONTENT)
                     initFile.setExecutable(true, false)
                 }
@@ -587,10 +594,16 @@ class DefaultSessionManager(
             )
         }
 
-        // Ensure persistent guest init exists and is executable
+        // Ensure persistent guest init exists and is up to date with app's authoritative version
         val initFile = File(rootfsDir, GuestInit.GUEST_INIT_PATH.removePrefix("/"))
-        if (!initFile.exists()) {
+        if (!initFile.exists() || runCatching { initFile.readText() }.getOrNull() != GuestInit.SCRIPT_CONTENT) {
             initFile.parentFile?.mkdirs()
+            try {
+                initFile.setWritable(true)
+                Files.deleteIfExists(initFile.toPath())
+            } catch (_: Exception) {
+                initFile.delete()
+            }
             initFile.writeText(GuestInit.SCRIPT_CONTENT)
             initFile.setExecutable(true, false)
         }

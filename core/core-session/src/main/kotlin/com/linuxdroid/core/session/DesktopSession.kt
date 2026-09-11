@@ -14,6 +14,7 @@ import com.linuxdroid.core.runtime.RuntimeManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.file.Files
 
 /**
  * Controller managing a graphical desktop session (Wayland compositor + Desktop environment).
@@ -122,8 +123,14 @@ class DesktopSession(
         }
 
         val initFile = File(rootfsDir, GuestInit.GUEST_INIT_PATH.removePrefix("/"))
-        if (!initFile.exists()) {
+        if (!initFile.exists() || runCatching { initFile.readText() }.getOrNull() != GuestInit.SCRIPT_CONTENT) {
             initFile.parentFile?.mkdirs()
+            try {
+                initFile.setWritable(true)
+                Files.deleteIfExists(initFile.toPath())
+            } catch (_: Exception) {
+                initFile.delete()
+            }
             initFile.writeText(GuestInit.SCRIPT_CONTENT)
             initFile.setExecutable(true, false)
         }
