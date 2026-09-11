@@ -485,12 +485,24 @@ class EnvironmentViewModel @Inject constructor(
         }
     }
 
-    fun getGuiState(environment: Environment): GuiState {
-        val cached = _guiStates.value[environment.id.value]
-        if (cached != null) return cached
+    fun getGuiState(environment: Environment, forceRefresh: Boolean = false): GuiState {
+        if (!forceRefresh) {
+            val cached = _guiStates.value[environment.id.value]
+            if (cached != null) return cached
+        }
         val status = guiInstaller.checkStatus(environment)
         _guiStates.update { it + (environment.id.value to status) }
         return status
+    }
+
+    fun refreshGuiStates(environment: Environment? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val envs = if (environment != null) listOf(environment) else environments.value
+            for (env in envs) {
+                val status = guiInstaller.checkStatus(env)
+                _guiStates.update { it + (env.id.value to status) }
+            }
+        }
     }
 
     fun installGui(environment: Environment) {

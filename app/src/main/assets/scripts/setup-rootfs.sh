@@ -128,7 +128,7 @@ chmod +x /usr/sbin/policy-rc.d
 if [ "${DISTRO_ID}" = "ubuntu" ]; then
     CODENAME="${DISTRO_CODENAME}"
     if [ -z "${CODENAME}" ]; then
-        CODENAME="noble" # Default LTS fallback
+        CODENAME="resolute" # Ubuntu 26.04 ARM64 default
     fi
 
     SOURCES_LIST="/etc/apt/sources.list"
@@ -228,17 +228,17 @@ fi
 
 log_info "Installing LDDM from $(basename "${LDDM_DEB}")..."
 apt-get install -y "${LDDM_DEB}" || {
-    log_warn "apt install failed for LDDM; running dpkg -i + apt-get install -f..."
-    dpkg -i "${LDDM_DEB}" || true
-    apt-get install -f -y || log_fatal "Failed to install LDDM package."
+    log_warn "apt install failed for LDDM; repairing dependencies with apt-get --fix-broken..."
+    apt-get --fix-broken install -y
+    apt-get install -y "${LDDM_DEB}" || log_fatal "Failed to install LDDM package."
 }
 log_pass "LDDM installed successfully."
 
 log_info "Installing LDDE from $(basename "${LDDE_DEB}")..."
 apt-get install -y "${LDDE_DEB}" || {
-    log_warn "apt install failed for LDDE; running dpkg -i + apt-get install -f..."
-    dpkg -i "${LDDE_DEB}" || true
-    apt-get install -f -y || log_fatal "Failed to install LDDE package."
+    log_warn "apt install failed for LDDE; repairing dependencies with apt-get --fix-broken..."
+    apt-get --fix-broken install -y
+    apt-get install -y "${LDDE_DEB}" || log_fatal "Failed to install LDDE package."
 }
 log_pass "LDDE installed successfully."
 

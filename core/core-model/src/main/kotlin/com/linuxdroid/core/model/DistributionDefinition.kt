@@ -72,19 +72,20 @@ data class DistroRelease(
 object DistributionCatalog {
 
     fun getDefaultCatalog(): List<DistributionDefinition> = listOf(
-        getDefinition(Distribution.DEBIAN, Architecture.ARM64),
         getDefinition(Distribution.UBUNTU, Architecture.ARM64),
+        getDefinition(Distribution.DEBIAN, Architecture.ARM64),
     )
 
     fun getAvailableReleases(distribution: Distribution): List<DistroRelease> {
         return when (distribution) {
+            Distribution.UBUNTU -> listOf(
+                DistroRelease("resolute", "Ubuntu 26.04 ARM64 (Resolute)", isDefault = true),
+                DistroRelease("noble", "Ubuntu 24.04 LTS (Noble)", isDefault = false),
+                DistroRelease("jammy", "Ubuntu 22.04 LTS (Jammy)", isDefault = false),
+            )
             Distribution.DEBIAN -> listOf(
                 DistroRelease("trixie", "Debian 13 (Trixie)", isDefault = true),
                 DistroRelease("bookworm", "Debian 12 (Bookworm)", isDefault = false),
-            )
-            Distribution.UBUNTU -> listOf(
-                DistroRelease("noble", "Ubuntu 24.04 LTS (Noble)", isDefault = true),
-                DistroRelease("jammy", "Ubuntu 22.04 LTS (Jammy)", isDefault = false),
             )
             else -> listOf(DistroRelease("default", "Default", isDefault = true))
         }
@@ -131,18 +132,26 @@ object DistributionCatalog {
             }
 
             Distribution.UBUNTU -> {
-                val targetRelease = release?.lowercase()?.trim()?.ifEmpty { null } ?: "noble"
-                val releaseVersion = if (targetRelease == "jammy") "22.04" else "24.04"
-                val releaseDisplayName = if (targetRelease == "jammy") "Ubuntu 22.04 LTS Jammy" else "Ubuntu 24.04 LTS Noble"
-                val tarballUrl = if (targetRelease == "jammy") {
-                    "https://cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04.4-base-arm64.tar.gz"
-                } else {
-                    "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.4-base-arm64.tar.gz"
+                val targetRelease = release?.lowercase()?.trim()?.ifEmpty { null } ?: "resolute"
+                val releaseVersion = when (targetRelease) {
+                    "resolute" -> "26.04"
+                    "jammy" -> "22.04"
+                    else -> "24.04"
                 }
-                val checksum = if (targetRelease == "jammy") {
-                    "e8c46565538e12a4f488667a7fa38a0f5f654b79b6d85ebbe6b69b6574fcfdfa"
-                } else {
-                    "04207713ece899c3740823d33690441ad3a7f0ded1101aca744e2b0f37ac7ff2"
+                val releaseDisplayName = when (targetRelease) {
+                    "resolute" -> "Ubuntu Base 26.04 ARM64 (Resolute)"
+                    "jammy" -> "Ubuntu 22.04 LTS Jammy"
+                    else -> "Ubuntu 24.04 LTS Noble"
+                }
+                val tarballUrl = when (targetRelease) {
+                    "resolute" -> "https://cdimage.ubuntu.com/ubuntu-base/releases/resolute/release/ubuntu-base-26.04-base-arm64.tar.gz"
+                    "jammy" -> "https://cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04.4-base-arm64.tar.gz"
+                    else -> "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.4-base-arm64.tar.gz"
+                }
+                val checksum = when (targetRelease) {
+                    "jammy" -> "e8c46565538e12a4f488667a7fa38a0f5f654b79b6d85ebbe6b69b6574fcfdfa"
+                    "noble" -> "04207713ece899c3740823d33690441ad3a7f0ded1101aca744e2b0f37ac7ff2"
+                    else -> null
                 }
                 DistributionDefinition(
                     id = "ubuntu-$targetRelease-$archSuffix",

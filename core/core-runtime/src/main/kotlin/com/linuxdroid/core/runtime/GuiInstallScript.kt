@@ -219,7 +219,7 @@ fi
 if [ -f /etc/os-release ]; then
     . /etc/os-release
     DISTRO_ID="§{ID:-}"
-    DISTRO_CODENAME="§{VERSION_CODENAME:-§{UBUNTU_CODENAME:-noble}}"
+    DISTRO_CODENAME="§{VERSION_CODENAME:-§{UBUNTU_CODENAME:-resolute}}"
     if [ "§DISTRO_ID" = "ubuntu" ]; then
         SOURCES_LIST="/etc/apt/sources.list"
         SOURCES_DIR="/etc/apt/sources.list.d"

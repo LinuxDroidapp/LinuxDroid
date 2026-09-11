@@ -122,12 +122,13 @@ fun HomeScreen(
         activeEnv.state == EnvironmentState.STOPPING
     )
 
-    // Check shared storage permission on first launch
+    // Check shared storage permission and refresh GUI states on resume
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 settingsViewModel.checkStorageAccess()
+                environmentViewModel.refreshGuiStates()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -1389,31 +1390,14 @@ private fun RootfsInstallationCard(
 
     var installMode by remember { mutableStateOf(RootfsInstallMode.BASE_CATALOG) }
 
-    // Base rootfs catalog state
-    var selectedDistro by remember { mutableStateOf(Distribution.DEBIAN) }
-    val distroFetchState by environmentViewModel.distroFetchState.collectAsState()
-
-    // Trigger initial background metadata fetch for selected distro
-    LaunchedEffect(selectedDistro) {
-        environmentViewModel.prepareDistribution(selectedDistro)
-    }
-
-    val availableReleases = remember(selectedDistro) {
-        DistributionCatalog.getAvailableReleases(selectedDistro)
-    }
-    var selectedRelease by remember(selectedDistro) {
-        mutableStateOf(
-            availableReleases.firstOrNull { it.isDefault }?.releaseCode
-                ?: availableReleases.firstOrNull()?.releaseCode
-                ?: "bookworm"
-        )
+    LaunchedEffect(Unit) {
+        environmentViewModel.prepareDistribution(Distribution.UBUNTU)
     }
 
     // Local rootfs archive state
     var localArchiveUri by remember { mutableStateOf<Uri?>(null) }
     var localArchiveName by remember { mutableStateOf<String?>(null) }
     var localArchiveSize by remember { mutableStateOf<Long?>(null) }
-    var localArchiveDistro by remember { mutableStateOf(Distribution.UBUNTU) }
     var isArchiveValid by remember { mutableStateOf(false) }
     var archiveValidationNote by remember { mutableStateOf<String?>(null) }
 
@@ -1459,11 +1443,6 @@ private fun RootfsInstallationCard(
             if (resolvedName.endsWith(".tar.gz", ignoreCase = true) || resolvedName.endsWith(".tgz", ignoreCase = true) || validGzipHeader) {
                 isArchiveValid = true
                 archiveValidationNote = if (validGzipHeader) "Verified ARM64 GZIP archive (.tar.gz)" else "GZIP tarball detected (.tar.gz)"
-                if (resolvedName.contains("debian", ignoreCase = true)) {
-                    localArchiveDistro = Distribution.DEBIAN
-                } else if (resolvedName.contains("ubuntu", ignoreCase = true)) {
-                    localArchiveDistro = Distribution.UBUNTU
-                }
             } else {
                 isArchiveValid = false
                 archiveValidationNote = "Invalid archive format. Please select a .tar.gz rootfs file."
@@ -1503,11 +1482,6 @@ private fun RootfsInstallationCard(
     val passwordResult = remember(password, confirmPassword) { PasswordValidator.validate(password, confirmPassword) }
 
     val isFormValid = usernameResult == null && passwordResult == null && username.isNotBlank() && password.isNotBlank()
-    val envName = if (installMode == RootfsInstallMode.BASE_CATALOG) {
-        "${selectedDistro.displayName} ($selectedRelease)"
-    } else {
-        localArchiveName?.removeSuffix(".tar.gz")?.removeSuffix(".tgz") ?: "${localArchiveDistro.displayName} (Local)"
-    }
 
     NeuCard(
         modifier = Modifier.fillMaxWidth(),
@@ -1515,7 +1489,7 @@ private fun RootfsInstallationCard(
         shape = RoundedCornerShape(18.dp),
     ) {
         Column {
-            // ── Custom Header: Penguin + App name + big settings icon ──
+            // ── Header: Ubuntu Base 26.04 ARM64 + settings icon ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1525,20 +1499,20 @@ private fun RootfsInstallationCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    LinuxPenguinIcon(size = 46.dp)
+                    DistroIcon(distribution = Distribution.UBUNTU, size = 44.dp)
                     Column {
                         Text(
-                            text = "LinuxDroid",
+                            text = "Ubuntu Base 26.04 ARM64",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp,
+                                fontSize = 17.sp,
                             ),
                             color = neuColors.textPrimary,
                         )
                         Text(
-                            text = "Rootless Linux Userspace on Android 16",
+                            text = "Rootless Linux Userspace on Android",
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                             color = neuColors.textSecondary,
                         )
@@ -1567,278 +1541,243 @@ private fun RootfsInstallationCard(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 if (installingEnv == null) {
-                    // ── Mode Switcher: Install Base Rootfs vs Use Local Archive ──
+                    // 1. Linux Username
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = { username = it.trim().lowercase() },
+                        label = { Text("Username") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = neuColors.primaryAccent, modifier = Modifier.size(20.dp))
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Ascii,
+                            imeAction = ImeAction.Next,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                        ),
+                        isError = usernameResult != null && username.isNotEmpty(),
+                        supportingText = {
+                            if (usernameResult != null && username.isNotEmpty()) {
+                                Text(usernameResult, color = neuColors.error, fontSize = 11.sp)
+                            } else {
+                                Text("Linux user account with sudo privileges", fontSize = 10.sp, color = neuColors.textSecondary)
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = neuColors.textPrimary,
+                            unfocusedTextColor = neuColors.textPrimary,
+                            focusedBorderColor = neuColors.primaryAccent,
+                            unfocusedBorderColor = neuColors.borderHighlight,
+                            focusedLabelColor = neuColors.primaryAccent,
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bringIntoViewRequester(usernameRequester)
+                            .onFocusEvent {
+                                if (it.isFocused) {
+                                    focusedField = "username"
+                                    coroutineScope.launch {
+                                        kotlinx.coroutines.delay(100)
+                                        usernameRequester.bringIntoView()
+                                    }
+                                }
+                            },
+                    )
+
+                    // 2. Password
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Password") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Lock, contentDescription = null, tint = neuColors.primaryAccent, modifier = Modifier.size(20.dp))
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(
+                                    imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                    contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                                    tint = neuColors.textSecondary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Next,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                        ),
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = neuColors.textPrimary,
+                            unfocusedTextColor = neuColors.textPrimary,
+                            focusedBorderColor = neuColors.primaryAccent,
+                            unfocusedBorderColor = neuColors.borderHighlight,
+                            focusedLabelColor = neuColors.primaryAccent,
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bringIntoViewRequester(passwordRequester)
+                            .onFocusEvent {
+                                if (it.isFocused) {
+                                    focusedField = "password"
+                                    coroutineScope.launch {
+                                        kotlinx.coroutines.delay(100)
+                                        passwordRequester.bringIntoView()
+                                    }
+                                }
+                            },
+                    )
+
+                    // Confirm Password
+                    OutlinedTextField(
+                        value = confirmPassword,
+                        onValueChange = { confirmPassword = it },
+                        label = { Text("Confirm Password") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Lock, contentDescription = null, tint = neuColors.primaryAccent, modifier = Modifier.size(20.dp))
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
+                                Icon(
+                                    imageVector = if (confirmPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                    contentDescription = if (confirmPasswordVisible) "Hide password" else "Show password",
+                                    tint = neuColors.textSecondary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = { keyboardController?.hide() }
+                        ),
+                        visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        isError = passwordResult != null && (password.isNotEmpty() || confirmPassword.isNotEmpty()),
+                        supportingText = {
+                            if (passwordResult != null && (password.isNotEmpty() || confirmPassword.isNotEmpty())) {
+                                Text(passwordResult, color = neuColors.error, fontSize = 11.sp)
+                            } else {
+                                Text("Password must be at least 4 characters", fontSize = 10.sp, color = neuColors.textSecondary)
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = neuColors.textPrimary,
+                            unfocusedTextColor = neuColors.textPrimary,
+                            focusedBorderColor = neuColors.primaryAccent,
+                            unfocusedBorderColor = neuColors.borderHighlight,
+                            focusedLabelColor = neuColors.primaryAccent,
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bringIntoViewRequester(confirmPasswordRequester)
+                            .onFocusEvent {
+                                if (it.isFocused) {
+                                    focusedField = "confirmPassword"
+                                    coroutineScope.launch {
+                                        kotlinx.coroutines.delay(100)
+                                        confirmPasswordRequester.bringIntoView()
+                                    }
+                                }
+                            },
+                    )
+
+                    // 3. Rootfs Source
                     Text(
-                        "Rootfs Installation",
+                        "Rootfs Source",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         color = neuColors.textPrimary,
                     )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val isDownload = installMode == RootfsInstallMode.BASE_CATALOG
                         Surface(
                             modifier = Modifier
-                                .weight(1f)
+                                .fillMaxWidth()
                                 .clickable { installMode = RootfsInstallMode.BASE_CATALOG },
                             shape = RoundedCornerShape(12.dp),
-                            color = if (installMode == RootfsInstallMode.BASE_CATALOG) neuColors.primaryAccent.copy(alpha = 0.12f) else neuColors.surfacePressed,
+                            color = if (isDownload) neuColors.surfacePressed else neuColors.background,
                             border = androidx.compose.foundation.BorderStroke(
-                                width = if (installMode == RootfsInstallMode.BASE_CATALOG) 1.5.dp else 0.5.dp,
-                                color = if (installMode == RootfsInstallMode.BASE_CATALOG) neuColors.primaryAccent else neuColors.borderHighlight.copy(alpha = 0.3f),
+                                width = if (isDownload) 1.5.dp else 0.5.dp,
+                                color = if (isDownload) neuColors.primaryAccent else neuColors.borderHighlight.copy(alpha = 0.3f),
                             ),
                         ) {
                             Row(
-                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                Icon(
-                                    Icons.Default.Download,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = if (installMode == RootfsInstallMode.BASE_CATALOG) neuColors.primaryAccent else neuColors.textSecondary
+                                RadioButton(
+                                    selected = isDownload,
+                                    onClick = { installMode = RootfsInstallMode.BASE_CATALOG },
+                                    colors = RadioButtonDefaults.colors(selectedColor = neuColors.primaryAccent),
+                                    modifier = Modifier.size(20.dp),
                                 )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    "Install Base Rootfs",
-                                    fontSize = 11.sp,
-                                    fontWeight = if (installMode == RootfsInstallMode.BASE_CATALOG) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (installMode == RootfsInstallMode.BASE_CATALOG) neuColors.primaryAccent else neuColors.textPrimary,
-                                    maxLines = 1,
-                                )
+                                Column {
+                                    Text(
+                                        text = "Download Ubuntu Base",
+                                        fontSize = 13.sp,
+                                        fontWeight = if (isDownload) FontWeight.Bold else FontWeight.Medium,
+                                        color = neuColors.textPrimary,
+                                    )
+                                    Text(
+                                        text = "Direct download from cdimage.ubuntu.com",
+                                        fontSize = 10.sp,
+                                        color = neuColors.textSecondary,
+                                    )
+                                }
                             }
                         }
 
+                        val isLocal = installMode == RootfsInstallMode.LOCAL_ARCHIVE
                         Surface(
                             modifier = Modifier
-                                .weight(1f)
+                                .fillMaxWidth()
                                 .clickable { installMode = RootfsInstallMode.LOCAL_ARCHIVE },
                             shape = RoundedCornerShape(12.dp),
-                            color = if (installMode == RootfsInstallMode.LOCAL_ARCHIVE) neuColors.primaryAccent.copy(alpha = 0.12f) else neuColors.surfacePressed,
+                            color = if (isLocal) neuColors.surfacePressed else neuColors.background,
                             border = androidx.compose.foundation.BorderStroke(
-                                width = if (installMode == RootfsInstallMode.LOCAL_ARCHIVE) 1.5.dp else 0.5.dp,
-                                color = if (installMode == RootfsInstallMode.LOCAL_ARCHIVE) neuColors.primaryAccent else neuColors.borderHighlight.copy(alpha = 0.3f),
+                                width = if (isLocal) 1.5.dp else 0.5.dp,
+                                color = if (isLocal) neuColors.primaryAccent else neuColors.borderHighlight.copy(alpha = 0.3f),
                             ),
                         ) {
                             Row(
-                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                Icon(
-                                    Icons.Default.Folder,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = if (installMode == RootfsInstallMode.LOCAL_ARCHIVE) neuColors.primaryAccent else neuColors.textSecondary
+                                RadioButton(
+                                    selected = isLocal,
+                                    onClick = { installMode = RootfsInstallMode.LOCAL_ARCHIVE },
+                                    colors = RadioButtonDefaults.colors(selectedColor = neuColors.primaryAccent),
+                                    modifier = Modifier.size(20.dp),
                                 )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    "Use Local Archive",
-                                    fontSize = 11.sp,
-                                    fontWeight = if (installMode == RootfsInstallMode.LOCAL_ARCHIVE) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (installMode == RootfsInstallMode.LOCAL_ARCHIVE) neuColors.primaryAccent else neuColors.textPrimary,
-                                    maxLines = 1,
-                                )
+                                Column {
+                                    Text(
+                                        text = "Use Local Archive",
+                                        fontSize = 13.sp,
+                                        fontWeight = if (isLocal) FontWeight.Bold else FontWeight.Medium,
+                                        color = neuColors.textPrimary,
+                                    )
+                                    Text(
+                                        text = "Select an existing .tar.gz archive from this device",
+                                        fontSize = 10.sp,
+                                        color = neuColors.textSecondary,
+                                    )
+                                }
                             }
                         }
                     }
 
-                    if (installMode == RootfsInstallMode.BASE_CATALOG) {
-                        // ── Step 1: Distribution Selection ─────────────────────
-                        Text(
-                            "1. Choose Distribution",
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = neuColors.textPrimary,
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            listOf(
-                                Triple(Distribution.DEBIAN, "Debian", "Stable & Lightweight"),
-                                Triple(Distribution.UBUNTU, "Ubuntu", "Modern LTS & Packages"),
-                            ).forEach { (distro, title, desc) ->
-                                val isSelected = selectedDistro == distro
-                                Surface(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable {
-                                            if (selectedDistro != distro) {
-                                                selectedDistro = distro
-                                                val releases = DistributionCatalog.getAvailableReleases(distro)
-                                                selectedRelease = releases.firstOrNull { it.isDefault }?.releaseCode
-                                                    ?: releases.firstOrNull()?.releaseCode
-                                                    ?: "bookworm"
-                                            }
-                                        },
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = if (isSelected) neuColors.primaryAccent.copy(alpha = 0.10f) else neuColors.surfacePressed,
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        width = if (isSelected) 1.5.dp else 0.5.dp,
-                                        color = if (isSelected) neuColors.primaryAccent else neuColors.borderHighlight.copy(alpha = 0.3f),
-                                    ),
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                    ) {
-                                        DistroIcon(distribution = distro, size = 36.dp)
-                                        Text(
-                                            text = title,
-                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                            color = if (isSelected) neuColors.primaryAccent else neuColors.textPrimary,
-                                        )
-                                        Text(
-                                            text = desc,
-                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
-                                            color = neuColors.textSecondary,
-                                            maxLines = 1,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // Background release pre-fetch status indicator
-                        Surface(
-                            color = neuColors.surfacePressed,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                when (val state = distroFetchState) {
-                                    is DistributionFetchState.Fetching -> {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(12.dp),
-                                            strokeWidth = 1.5.dp,
-                                            color = neuColors.primaryAccent,
-                                        )
-                                        Text(
-                                            text = state.message,
-                                            fontSize = 11.sp,
-                                            fontFamily = SfMono,
-                                            color = neuColors.textSecondary,
-                                            maxLines = 1,
-                                        )
-                                    }
-                                    is DistributionFetchState.Ready -> {
-                                        Icon(
-                                            Icons.Default.CheckCircle,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(14.dp),
-                                            tint = neuColors.success,
-                                        )
-                                        Text(
-                                            text = "Release data verified for ${state.distro.displayName}",
-                                            fontSize = 11.sp,
-                                            fontFamily = SfMono,
-                                            color = neuColors.success,
-                                            maxLines = 1,
-                                        )
-                                    }
-                                    is DistributionFetchState.Failed -> {
-                                        Icon(
-                                            Icons.Default.Info,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(14.dp),
-                                            tint = neuColors.warning,
-                                        )
-                                        Text(
-                                            text = "Using cached catalog definition",
-                                            fontSize = 11.sp,
-                                            fontFamily = SfMono,
-                                            color = neuColors.textSecondary,
-                                            maxLines = 1,
-                                        )
-                                    }
-                                    else -> {
-                                        Text(
-                                            text = "Ready to configure",
-                                            fontSize = 11.sp,
-                                            fontFamily = SfMono,
-                                            color = neuColors.textSecondary,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // ── Step 2: Installation Configuration ──────────────────
-                        Text(
-                            "2. Installation Configuration",
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = neuColors.textPrimary,
-                        )
-
-                        // Version Selection
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                "Select Version",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                color = neuColors.textSecondary,
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                availableReleases.forEach { release ->
-                                    val isSelected = selectedRelease == release.releaseCode
-                                    Surface(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clickable { selectedRelease = release.releaseCode },
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = if (isSelected) neuColors.surfacePressed else neuColors.background,
-                                        border = androidx.compose.foundation.BorderStroke(
-                                            width = if (isSelected) 1.5.dp else 0.5.dp,
-                                            color = if (isSelected) neuColors.primaryAccent else neuColors.borderHighlight.copy(alpha = 0.3f),
-                                        ),
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        ) {
-                                            RadioButton(
-                                                selected = isSelected,
-                                                onClick = { selectedRelease = release.releaseCode },
-                                                colors = RadioButtonDefaults.colors(selectedColor = neuColors.primaryAccent),
-                                                modifier = Modifier.size(20.dp),
-                                            )
-                                            Text(
-                                                text = release.displayName,
-                                                fontSize = 12.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                color = neuColors.textPrimary,
-                                                maxLines = 1,
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        // ── Step 1: Select Archive File ─────────────────────
-                        Text(
-                            "1. Select Local Rootfs Archive (.tar.gz)",
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = neuColors.textPrimary,
-                        )
-
-                        Text(
-                            "Select a local ARM64 rootfs archive from your device (e.g. ubuntu-base-26.04-base-arm64.tar.gz).",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = neuColors.textSecondary,
-                        )
-
+                    if (installMode == RootfsInstallMode.LOCAL_ARCHIVE) {
                         NeuButton(
                             onClick = { archivePickerLauncher.launch(arrayOf("*/*")) },
                             modifier = Modifier.fillMaxWidth(),
@@ -1912,254 +1851,23 @@ private fun RootfsInstallationCard(
                                 }
                             }
                         }
-
-                        // ── Step 2: Distribution Profile ─────────────────────
-                        Text(
-                            "2. Distribution Profile",
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = neuColors.textPrimary,
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            listOf(
-                                Triple(Distribution.UBUNTU, "Ubuntu", "Ubuntu Base Archive"),
-                                Triple(Distribution.DEBIAN, "Debian", "Debian Base Archive"),
-                            ).forEach { (distro, title, desc) ->
-                                val isSelected = localArchiveDistro == distro
-                                Surface(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable { localArchiveDistro = distro },
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = if (isSelected) neuColors.primaryAccent.copy(alpha = 0.10f) else neuColors.surfacePressed,
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        width = if (isSelected) 1.5.dp else 0.5.dp,
-                                        color = if (isSelected) neuColors.primaryAccent else neuColors.borderHighlight.copy(alpha = 0.3f),
-                                    ),
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(10.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                    ) {
-                                        DistroIcon(distribution = distro, size = 32.dp)
-                                        Text(
-                                            text = title,
-                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                            color = if (isSelected) neuColors.primaryAccent else neuColors.textPrimary,
-                                        )
-                                        Text(
-                                            text = desc,
-                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
-                                            color = neuColors.textSecondary,
-                                            maxLines = 1,
-                                        )
-                                    }
-                                }
-                            }
-                        }
                     }
 
-                    // Auto-Detected Architecture Indicator
-                    Surface(
-                        color = neuColors.surfacePressed,
-                        shape = RoundedCornerShape(10.dp),
-                        border = androidx.compose.foundation.BorderStroke(0.5.dp, neuColors.borderHighlight.copy(alpha = 0.4f)),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(16.dp), tint = neuColors.success)
-                                Text("Target Architecture", style = MaterialTheme.typography.bodySmall, color = neuColors.textSecondary)
-                            }
-                            Text(
-                                "${detectedArch.linuxArch.uppercase()} (Auto Detected)",
-                                fontFamily = SfMono,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = neuColors.primaryAccent,
-                            )
-                        }
-                    }
-
-                    // Username Input
-                    OutlinedTextField(
-                        value = username,
-                        onValueChange = { username = it.trim().lowercase() },
-                        label = { Text("Linux Username") },
-                        leadingIcon = {
-                            Icon(Icons.Default.Person, contentDescription = null, tint = neuColors.primaryAccent, modifier = Modifier.size(20.dp))
-                        },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Ascii,
-                            imeAction = ImeAction.Next,
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
-                        ),
-                        isError = usernameResult != null && username.isNotEmpty(),
-                        supportingText = {
-                            if (usernameResult != null && username.isNotEmpty()) {
-                                Text(usernameResult, color = neuColors.error, fontSize = 11.sp)
-                            } else {
-                                Text("Primary Linux user account with sudo privileges", fontSize = 10.sp, color = neuColors.textSecondary)
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = neuColors.textPrimary,
-                            unfocusedTextColor = neuColors.textPrimary,
-                            focusedBorderColor = neuColors.primaryAccent,
-                            unfocusedBorderColor = neuColors.borderHighlight,
-                            focusedLabelColor = neuColors.primaryAccent,
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .bringIntoViewRequester(usernameRequester)
-                            .onFocusEvent {
-                                if (it.isFocused) {
-                                    focusedField = "username"
-                                    coroutineScope.launch {
-                                        kotlinx.coroutines.delay(100)
-                                        usernameRequester.bringIntoView()
-                                    }
-                                }
-                            },
-                    )
-
-                    // Password Input
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Password") },
-                        leadingIcon = {
-                            Icon(Icons.Default.Lock, contentDescription = null, tint = neuColors.primaryAccent, modifier = Modifier.size(20.dp))
-                        },
-                        trailingIcon = {
-                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                Icon(
-                                    imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                    contentDescription = if (passwordVisible) "Hide password" else "Show password",
-                                    tint = neuColors.textSecondary,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            }
-                        },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Password,
-                            imeAction = ImeAction.Next,
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
-                        ),
-                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = neuColors.textPrimary,
-                            unfocusedTextColor = neuColors.textPrimary,
-                            focusedBorderColor = neuColors.primaryAccent,
-                            unfocusedBorderColor = neuColors.borderHighlight,
-                            focusedLabelColor = neuColors.primaryAccent,
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .bringIntoViewRequester(passwordRequester)
-                            .onFocusEvent {
-                                if (it.isFocused) {
-                                    focusedField = "password"
-                                    coroutineScope.launch {
-                                        kotlinx.coroutines.delay(100)
-                                        passwordRequester.bringIntoView()
-                                    }
-                                }
-                            },
-                    )
-
-                    // Confirm Password Input
-                    OutlinedTextField(
-                        value = confirmPassword,
-                        onValueChange = { confirmPassword = it },
-                        label = { Text("Confirm Password") },
-                        leadingIcon = {
-                            Icon(Icons.Default.Lock, contentDescription = null, tint = neuColors.primaryAccent, modifier = Modifier.size(20.dp))
-                        },
-                        trailingIcon = {
-                            IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
-                                Icon(
-                                    imageVector = if (confirmPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                    contentDescription = if (confirmPasswordVisible) "Hide password" else "Show password",
-                                    tint = neuColors.textSecondary,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            }
-                        },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Password,
-                            imeAction = ImeAction.Done,
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onDone = { keyboardController?.hide() }
-                        ),
-                        visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        isError = passwordResult != null && (password.isNotEmpty() || confirmPassword.isNotEmpty()),
-                        supportingText = {
-                            if (passwordResult != null && (password.isNotEmpty() || confirmPassword.isNotEmpty())) {
-                                Text(passwordResult, color = neuColors.error, fontSize = 11.sp)
-                            } else {
-                                Text("Password must be at least 4 characters", fontSize = 10.sp, color = neuColors.textSecondary)
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = neuColors.textPrimary,
-                            unfocusedTextColor = neuColors.textPrimary,
-                            focusedBorderColor = neuColors.primaryAccent,
-                            unfocusedBorderColor = neuColors.borderHighlight,
-                            focusedLabelColor = neuColors.primaryAccent,
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .bringIntoViewRequester(confirmPasswordRequester)
-                            .onFocusEvent {
-                                if (it.isFocused) {
-                                    focusedField = "confirmPassword"
-                                    coroutineScope.launch {
-                                        kotlinx.coroutines.delay(100)
-                                        confirmPasswordRequester.bringIntoView()
-                                    }
-                                }
-                            },
-                    )
-
-                    // ── Explicit Action Button (Install or Import) ───────────────────
+                    // 4. [ Install ] Button
                     NeuButton(
                         onClick = {
+                            val config = InstallConfig(
+                                distro = Distribution.UBUNTU,
+                                release = "resolute",
+                                username = username.trim(),
+                                password = password,
+                                architecture = Architecture.ARM64,
+                            )
                             if (installMode == RootfsInstallMode.BASE_CATALOG) {
-                                val config = InstallConfig(
-                                    distro = selectedDistro,
-                                    release = selectedRelease,
-                                    username = username.trim(),
-                                    password = password,
-                                    architecture = detectedArch,
-                                )
-                                onInstallConfig(config, envName)
+                                onInstallConfig(config, "Ubuntu Base 26.04 ARM64")
                             } else {
-                                val config = InstallConfig(
-                                    distro = localArchiveDistro,
-                                    release = if (localArchiveDistro == Distribution.UBUNTU) "noble" else "bookworm",
-                                    username = username.trim(),
-                                    password = password,
-                                    architecture = detectedArch,
-                                )
                                 val customName = localArchiveName?.removeSuffix(".tar.gz")?.removeSuffix(".tgz")
-                                    ?: "${localArchiveDistro.displayName} (Local)"
+                                    ?: "Ubuntu Base (Local)"
                                 localArchiveUri?.let { uri ->
                                     onInstallLocalArchive(uri, config, customName)
                                 }
@@ -2174,7 +1882,7 @@ private fun RootfsInstallationCard(
                         Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            if (installMode == RootfsInstallMode.BASE_CATALOG) "Install LinuxDroid" else "Import Local Rootfs",
+                            "Install",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                         )

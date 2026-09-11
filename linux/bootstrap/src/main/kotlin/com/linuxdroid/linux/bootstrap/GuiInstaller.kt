@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -49,21 +50,39 @@ class GuiInstaller(
      */
     fun checkStatus(environment: Environment): GuiState {
         val id = environment.id
-        val stateFile = storage.guiStateFile(id)
-        if (!stateFile.exists()) {
+        val stateFile = runCatching { storage.guiStateFile(id) }.getOrNull()
+        val rootfsDir = runCatching { storage.rootfsDir(id) }.getOrNull()
+            ?.takeIf { runCatching { !it.path.isNullOrBlank() }.getOrDefault(false) }
+            ?: runCatching { File(environment.rootfsPath) }.getOrNull()?.takeIf { runCatching { !it.path.isNullOrBlank() }.getOrDefault(false) }
+        val marker = if (rootfsDir != null) runCatching { File(rootfsDir.path, "etc/linuxdroid/GUI_INSTALL_COMPLETE") }.getOrNull() else null
+
+        // 1. Authoritative in-guest completion marker check
+        if (marker != null && marker.exists()) {
+            if (stateFile != null) {
+                val currentState = runCatching { stateFile.readText(Charsets.UTF_8).trim() }.getOrNull()
+                if (currentState != GuiState.INSTALLED.name) {
+                    runCatching {
+                        runBlocking {
+                            storage.writeAtomic(stateFile, "${GuiState.INSTALLED.name}\n")
+                        }
+                    }
+                }
+            }
+            _guiStates.value = _guiStates.value + (id.value to GuiState.INSTALLED)
+            return GuiState.INSTALLED
+        }
+
+        // 2. If marker does not exist, check persistent state file
+        if (stateFile == null || !stateFile.exists()) {
             return GuiState.NOT_INSTALLED
         }
 
         val text = runCatching { stateFile.readText(Charsets.UTF_8).trim() }.getOrNull()
         val parsed = GuiState.fromString(text)
 
-        // If marked INSTALLED, verify the completion marker actually exists on disk
+        // If recorded as INSTALLED but marker is missing on disk, mark FAILED
         if (parsed == GuiState.INSTALLED) {
-            val rootfsDir = storage.rootfsDir(id)
-            val marker = File(rootfsDir, "etc/linuxdroid/GUI_INSTALL_COMPLETE")
-            if (!marker.exists()) {
-                return GuiState.FAILED
-            }
+            return GuiState.FAILED
         }
 
         return parsed

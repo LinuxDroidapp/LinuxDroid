@@ -581,7 +581,7 @@ private fun CreateEnvironmentDialog(
     onDismiss: () -> Unit,
     onCreateWithConfig: (InstallConfig, String) -> Unit,
 ) {
-    var selectedDist by remember { mutableStateOf(Distribution.DEBIAN) }
+    var selectedDist by remember { mutableStateOf(Distribution.UBUNTU) }
     val detectedArch = remember { Architecture.current() }
     val availableReleases = remember(selectedDist) {
         DistributionCatalog.getAvailableReleases(selectedDist)
@@ -590,11 +590,11 @@ private fun CreateEnvironmentDialog(
         mutableStateOf(
             availableReleases.firstOrNull { it.isDefault }?.releaseCode
                 ?: availableReleases.firstOrNull()?.releaseCode
-                ?: "bookworm"
+                ?: "resolute"
         )
     }
 
-    var name by remember { mutableStateOf("Debian Linux") }
+    var name by remember { mutableStateOf("Ubuntu Base 26.04 ARM64") }
     var username by remember { mutableStateOf("user") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }

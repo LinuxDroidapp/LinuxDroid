@@ -142,6 +142,19 @@ fun TerminalScreen(
         keyboardController?.show()
     }
 
+    // Auto-close installation terminal and return home when in-guest GUI install succeeds
+    LaunchedEffect(Unit) {
+        viewModel.guiInstallCompleted.collect { success ->
+            if (success) {
+                Toast.makeText(context, "GUI installation complete! Desktop is ready.", Toast.LENGTH_LONG).show()
+                kotlinx.coroutines.delay(1200)
+                navController.popBackStack()
+            } else {
+                Toast.makeText(context, "GUI installation failed. Review terminal log for details.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     // Search matches calculation
     val searchMatchLines = remember(lines, searchQuery) {
         if (searchQuery.isNotBlank()) {

@@ -44,6 +44,7 @@ class TerminalViewModel @Inject constructor(
     private val logExporter: com.linuxdroid.core.diagnostics.RuntimeLogExporter,
     private val processManager: ProcessManager,
     private val sessionManager: com.linuxdroid.core.session.SessionManager,
+    private val storage: com.linuxdroid.core.filesystem.EnvironmentStorage,
 ) : ViewModel() {
 
     private val log = LinuxDroidLogger(LogSubsystem.APPLICATION)
@@ -67,6 +68,9 @@ class TerminalViewModel @Inject constructor(
 
     private val _shellExitCode = MutableStateFlow<Int?>(null)
     val shellExitCode: StateFlow<Int?> = _shellExitCode.asStateFlow()
+
+    private val _guiInstallCompleted = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
+    val guiInstallCompleted: SharedFlow<Boolean> = _guiInstallCompleted.asSharedFlow()
 
     private var ptySession: PtySession? = null
     private var readJob: Job? = null
@@ -214,6 +218,22 @@ class TerminalViewModel @Inject constructor(
                                 exitedAt = System.currentTimeMillis()
                             )
                         )
+
+                        // Check if this was an in-guest GUI installation session
+                        val isGuiInstall = !initialCmd.isNullOrBlank() && initialCmd.contains("install-gui.sh")
+                        if (isGuiInstall) {
+                            val rootfsDir = storage.rootfsDir(env.id)
+                            val marker = java.io.File(rootfsDir, "etc/linuxdroid/GUI_INSTALL_COMPLETE")
+                            if (exitCode == 0 && marker.exists()) {
+                                val stateFile = storage.guiStateFile(env.id)
+                                storage.writeAtomic(stateFile, "INSTALLED\n")
+                                log.info("In-guest GUI installation succeeded for ${env.id}, GUI_INSTALL_COMPLETE marker verified")
+                                _guiInstallCompleted.tryEmit(true)
+                            } else {
+                                log.warn("In-guest GUI installation finished with exitCode=$exitCode (marker exists: ${marker.exists()})")
+                                _guiInstallCompleted.tryEmit(false)
+                            }
+                        }
                     }
                 } catch (e: Exception) {
                     log.error("Failed to spawn interactive shell", e)

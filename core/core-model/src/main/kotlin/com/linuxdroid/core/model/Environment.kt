@@ -113,7 +113,7 @@ enum class Distribution(val displayName: String, val packageManager: String) {
     ALPINE("Alpine Linux", "apk");
 
     companion object {
-        fun default(): Distribution = DEBIAN
+        fun default(): Distribution = UBUNTU
     }
 }
 
