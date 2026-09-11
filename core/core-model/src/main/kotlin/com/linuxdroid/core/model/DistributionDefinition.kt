@@ -79,9 +79,7 @@ object DistributionCatalog {
     fun getAvailableReleases(distribution: Distribution): List<DistroRelease> {
         return when (distribution) {
             Distribution.UBUNTU -> listOf(
-                DistroRelease("resolute", "Ubuntu 26.04 ARM64 (Resolute)", isDefault = true),
-                DistroRelease("noble", "Ubuntu 24.04 LTS (Noble)", isDefault = false),
-                DistroRelease("jammy", "Ubuntu 22.04 LTS (Jammy)", isDefault = false),
+                DistroRelease("resolute", "Ubuntu Base 26.04 ARM64", isDefault = true),
             )
             Distribution.DEBIAN -> listOf(
                 DistroRelease("trixie", "Debian 13 (Trixie)", isDefault = true),

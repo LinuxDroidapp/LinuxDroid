@@ -267,7 +267,15 @@ class LocalRootfsImporter(
                     postInstallMarker.writeText("STATUS=LOCAL_ROOTFS_CLI_READY\nTIMESTAMP=${System.currentTimeMillis()}\n")
                 }
 
-                // 10. Record metadata and transition to ROOTFS_IMPORTED
+                // 10. Record metadata, ready markers, and transition to ROOTFS_READY
+                PostInstallScript.writeRootfsReadyMarker(
+                    rootfsDir = finalRootfsDir,
+                    distro = distroId,
+                    release = distroCodename,
+                    username = targetUser,
+                    arch = "arm64",
+                )
+
                 val metadata = RootfsMetadata(
                     distribution = distroId,
                     release = distroCodename,
@@ -278,22 +286,22 @@ class LocalRootfsImporter(
                     checksumAlgorithm = "none",
                     checksum = "local",
                     bootstrapVersion = "1.0.0",
-                    status = "imported",
-                    deploymentState = LocalRootfsState.ROOTFS_IMPORTED.name,
+                    status = "ready",
+                    deploymentState = RootfsDeploymentState.ROOTFS_READY.name,
                     installedAt = System.currentTimeMillis(),
                 )
                 val metadataFile = File(storage.metadataDir(environmentId), "rootfs-manifest.json")
                 storage.writeAtomic(metadataFile, json.encodeToString(metadata))
 
-                // Record local rootfs state
-                writeLocalRootfsState(environmentId, LocalRootfsState.ROOTFS_IMPORTED)
+                // Record local rootfs state as READY and GUI as NOT_INSTALLED
+                writeLocalRootfsState(environmentId, LocalRootfsState.READY)
                 val guiStateFile = File(storage.metadataDir(environmentId), "gui-state")
                 storage.writeAtomic(guiStateFile, "NOT_INSTALLED\n")
 
-                _setupStates.value = _setupStates.value + (envKey to LocalRootfsState.ROOTFS_IMPORTED)
+                _setupStates.value = _setupStates.value + (envKey to LocalRootfsState.READY)
 
-                onProgress(1.0f, "Rootfs imported successfully. Setup required.")
-                onLog(">>> [SUCCESS] Local rootfs imported. CLI is available; in-guest setup is required for full desktop.")
+                onProgress(1.0f, "Rootfs imported successfully. Environment is ready.")
+                onLog(">>> [SUCCESS] Local rootfs imported and validated. ROOTFS_READY!")
 
                 return@withLock LocalImportResult(
                     environmentId = environmentId,

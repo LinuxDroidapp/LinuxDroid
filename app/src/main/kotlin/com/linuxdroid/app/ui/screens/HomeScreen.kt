@@ -110,17 +110,22 @@ fun HomeScreen(
 
     val activeEnv = environments.firstOrNull()
 
-    val installingEnv = environments.firstOrNull {
-        it.state == EnvironmentState.INSTALLING || (installProgress[it.id.value] != null)
-    }
+    val isDiskRootfsReady = activeEnv != null && environmentViewModel.isRootfsReady(activeEnv)
 
-    val hasInstalledRootfs = activeEnv != null && (
+    val hasInstalledRootfs = (activeEnv != null && (
         activeEnv.state == EnvironmentState.READY ||
         activeEnv.state == EnvironmentState.RUNNING ||
         activeEnv.state == EnvironmentState.STARTING ||
         activeEnv.state == EnvironmentState.STOPPED ||
         activeEnv.state == EnvironmentState.STOPPING
-    )
+    )) || isDiskRootfsReady
+
+    val installingEnv = environments.firstOrNull {
+        (it.state == EnvironmentState.INSTALLING && !isDiskRootfsReady) || (installProgress[it.id.value] != null)
+    }
+
+    val isActivelyInstalling = installingEnv != null && installProgress[installingEnv.id.value] != null
+    val showInstallationScreen = !hasInstalledRootfs || isActivelyInstalling
 
     // Check shared storage permission and refresh GUI states on resume
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -129,6 +134,7 @@ fun HomeScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 settingsViewModel.checkStorageAccess()
                 environmentViewModel.refreshGuiStates()
+                environmentViewModel.reconcileRootfsState()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -158,7 +164,7 @@ fun HomeScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (!hasInstalledRootfs || installingEnv != null) {
+            if (showInstallationScreen) {
                 // NO Rootfs Present -> Show Rootfs Installation Screen
                 RootfsInstallationCard(
                     environmentViewModel = environmentViewModel,
