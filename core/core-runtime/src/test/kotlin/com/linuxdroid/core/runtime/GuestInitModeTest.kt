@@ -25,6 +25,7 @@ class GuestInitModeTest {
 
         // CLI branch
         assertThat(script).contains("echo \"[GUEST-INIT] Starting CLI session\" >&2")
+        assertThat(script).contains("exec /bin/bash -l")
         assertThat(script).contains("exec \"\$SHELL\" -l")
 
         // Deterministic rejection of missing or invalid startMode

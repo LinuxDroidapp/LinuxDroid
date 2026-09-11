@@ -152,7 +152,15 @@ case "§START_MODE" in
             init_log "Handing over to CLI workload: §1"
             exec "§@"
         else
-            exec "§SHELL" -l
+            if [ -x /bin/bash ]; then
+                exec /bin/bash -l
+            elif [ -x /usr/bin/bash ]; then
+                exec /usr/bin/bash -l
+            elif [ -x /bin/sh ]; then
+                exec /bin/sh -l
+            else
+                exec "§SHELL" -l
+            fi
         fi
         ;;
     *)

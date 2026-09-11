@@ -43,6 +43,7 @@ class TerminalViewModel @Inject constructor(
     private val runtimeBackend: RuntimeBackend,
     private val logExporter: com.linuxdroid.core.diagnostics.RuntimeLogExporter,
     private val processManager: ProcessManager,
+    private val sessionManager: com.linuxdroid.core.session.SessionManager,
 ) : ViewModel() {
 
     private val log = LinuxDroidLogger(LogSubsystem.APPLICATION)
@@ -108,8 +109,9 @@ class TerminalViewModel @Inject constructor(
                 _shellExitCode.value = null
 
                 try {
-                    // Ensure runtime backend is prepared and started
-                    if (env.state != EnvironmentState.RUNNING) {
+                    // Ensure runtime backend and session are initialized and shared via SessionManager
+                    val activeSession = sessionManager.getSession(env.id)
+                    if (activeSession == null || !activeSession.state.isActive()) {
                         log.info("[RUNTIME] Start requested: env=${env.id} startMode=CLI")
                         terminalBuffer.append("Starting Linux runtime (CLI mode)…\r\n".toByteArray(), "Starting Linux runtime (CLI mode)…\r\n".length)
                         val readyEnv = when (env.state) {
@@ -131,9 +133,7 @@ class TerminalViewModel @Inject constructor(
                             EnvironmentState.STARTING -> env.withState(EnvironmentState.READY)
                             else -> env
                         }
-                        runtimeBackend.prepare(readyEnv)
-                        runtimeBackend.initialize(readyEnv)
-                        runtimeBackend.start(readyEnv)
+                        sessionManager.startSession(readyEnv, com.linuxdroid.core.model.StartMode.CLI)
                         dao.updateState(
                             id = env.id.value,
                             state = EnvironmentState.RUNNING.name,
@@ -143,7 +143,7 @@ class TerminalViewModel @Inject constructor(
                         LinuxSessionService.start(context, env.name)
                         log.info("[RUNTIME] CLI_READY")
                     } else {
-                        log.info("Linux environment already active for ${env.id}; attaching terminal shell without restarting runtime")
+                        log.info("Linux environment already has active session ${activeSession.id} (mode=${activeSession.startMode}) for ${env.id}; sharing session")
                     }
 
                     // Close existing session if any

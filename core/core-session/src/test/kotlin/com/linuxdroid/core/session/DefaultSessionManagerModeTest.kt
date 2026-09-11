@@ -177,5 +177,60 @@ class DefaultSessionManagerModeTest {
         val active = sessionManager.getSession(environment.id)
         assertThat(active).isNull()
     }
+
+    @Test
+    fun `startSession shares same session between CLI and GUI modes`() = runTest {
+        val rootfsDir = storage.rootfsDir(environment.id)
+        val stateFile = storage.guiStateFile(environment.id)
+        stateFile.parentFile?.mkdirs()
+        stateFile.writeText("INSTALLED\n")
+        File(rootfsDir, "etc/linuxdroid").mkdirs()
+        File(rootfsDir, "etc/linuxdroid/GUI_INSTALL_COMPLETE").writeText("STATUS=COMPLETE\n")
+        File(rootfsDir, "usr/bin").mkdirs()
+        File(rootfsDir, "usr/bin/lddm").apply {
+            writeText("#!/bin/sh\n")
+            setExecutable(true)
+        }
+
+        coEvery {
+            runtimeBackend.executeAndWait(
+                environment = any(),
+                command = any(),
+                extraEnv = any(),
+                timeoutMs = any(),
+            )
+        } returns ProcessResult(handleId = "handle-1", exitCode = 0, stdout = "Linux test 6.1.0 SHELL_ACTIVE\n", stderr = "")
+
+        coEvery {
+            runtimeBackend.execute(
+                environment = any(),
+                command = any(),
+                workingDirectory = any(),
+                extraEnv = any(),
+                sessionId = any(),
+            )
+        } returns ProcessHandle(
+            handleId = "lddm-proc",
+            environmentId = environment.id,
+            command = listOf("/usr/bin/lddm"),
+            pid = 4321,
+            state = ProcessState.RUNNING,
+        )
+
+        // 1. Start in CLI mode
+        val cliSession = sessionManager.startSession(environment, startMode = StartMode.CLI)
+        assertThat(cliSession.startMode).isEqualTo(StartMode.CLI)
+        assertThat(cliSession.state).isEqualTo(SessionState.CLI_READY)
+
+        // 2. Start in GUI mode -> should share the same sessionId
+        val guiSession = sessionManager.startSession(environment, startMode = StartMode.GUI)
+        assertThat(guiSession.id).isEqualTo(cliSession.id)
+        assertThat(guiSession.state).isEqualTo(SessionState.GUI_READY)
+
+        // 3. Request CLI mode again while GUI is active -> should return the active shared session
+        val sharedSession = sessionManager.startSession(environment, startMode = StartMode.CLI)
+        assertThat(sharedSession.id).isEqualTo(cliSession.id)
+        assertThat(sharedSession.state.isActive()).isTrue()
+    }
 }
 

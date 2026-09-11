@@ -31,37 +31,42 @@ class DesktopSession(
 ) {
     private val log = LinuxDroidLogger(LogSubsystem.SESSION, environment.id, sessionId)
 
-    suspend fun start(): Session = withContext(Dispatchers.IO) {
-        log.info("Starting desktop session for ${environment.id}")
-
-        // 1. Initialize host subsystems
-        gpuManager?.detect()
-        audioManager?.start(
-            sampleRate = if (environment.configuration.audio.latencyHintMs > 0) 48000 else 44100,
-            channels = 2,
-        )
-        inputManager?.start()
-        networkManager?.applyConfig(environment.configuration.network)
-        displayManager?.applyConfig(environment.configuration.display)
+    suspend fun start(startMode: StartMode = StartMode.GUI): Session = withContext(Dispatchers.IO) {
+        log.info("Starting session for ${environment.id} (startMode=${startMode.name})")
 
         val waylandSocket = "wayland-0"
         val rootfsDir = storage.rootfsDir(environment.id)
         ensureGuiSessionEnvironment(rootfsDir)
 
-        val lddmPath = listOf("/usr/bin/lddm", "/usr/local/bin/lddm")
-            .firstOrNull { File(rootfsDir, it.removePrefix("/")).exists() }
-            ?: "/usr/bin/lddm"
-
         val userUid = if (environment.configuration.linuxUser == "root") "0" else "1000"
         val userRuntimeDir = "/run/user/$userUid"
 
+        val command = if (startMode == StartMode.GUI) {
+            // 1. Initialize host subsystems
+            gpuManager?.detect()
+            audioManager?.start(
+                sampleRate = if (environment.configuration.audio.latencyHintMs > 0) 48000 else 44100,
+                channels = 2,
+            )
+            inputManager?.start()
+            networkManager?.applyConfig(environment.configuration.network)
+            displayManager?.applyConfig(environment.configuration.display)
+
+            val lddmPath = listOf("/usr/bin/lddm", "/usr/local/bin/lddm")
+                .firstOrNull { File(rootfsDir, it.removePrefix("/")).exists() }
+                ?: "/usr/bin/lddm"
+            listOf(lddmPath)
+        } else {
+            listOf("/bin/bash")
+        }
+
         val spec = RuntimeSpec.fromEnvironment(
             environment = environment,
-            command = listOf(lddmPath),
-            workingDirectory = "/home/user",
-            startMode = StartMode.GUI,
+            command = command,
+            workingDirectory = if (startMode == StartMode.GUI) "/home/user" else (environment.configuration.homeDir.ifBlank { "/root" }),
+            startMode = startMode,
             extraEnv = mapOf(
-                "LINUXDROID_START_MODE" to StartMode.GUI.name,
+                "LINUXDROID_START_MODE" to startMode.name,
                 "WAYLAND_DISPLAY" to waylandSocket,
                 "XDG_RUNTIME_DIR" to userRuntimeDir,
                 "DISPLAY" to ":0",
@@ -76,8 +81,8 @@ class DesktopSession(
         Session(
             id = sessionId,
             environmentId = environment.id,
-            state = SessionState.GUI_READY,
-            startMode = StartMode.GUI,
+            state = if (startMode == StartMode.GUI) SessionState.GUI_READY else SessionState.CLI_READY,
+            startMode = startMode,
             waylandSocket = waylandSocket,
             display = if (environment.configuration.desktop.xwaylandEnabled) ":0" else null,
             compositorPid = procHandle.pid,

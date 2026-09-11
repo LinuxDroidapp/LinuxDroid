@@ -55,7 +55,28 @@ class DefaultSessionManager(
         environment: Environment,
         startMode: StartMode,
     ): Session = withContext(Dispatchers.IO) {
-        val sessionId = SessionId.generate()
+        val existingSession = getSession(environment.id)
+        if (existingSession != null && existingSession.state.isActive()) {
+            log.withEnvironment(environment.id).info(
+                "Active session already exists for ${environment.id}: ${existingSession.id} (mode=${existingSession.startMode}, state=${existingSession.state}). Sharing existing session.",
+                details = mapOf(
+                    "sessionId" to existingSession.id.value,
+                    "existingMode" to existingSession.startMode.name,
+                    "requestedMode" to startMode.name,
+                )
+            )
+            // If already running in the requested startMode, return existing session directly
+            if (existingSession.startMode == startMode) {
+                return@withContext existingSession
+            }
+            // If CLI mode requested and session is active (e.g. GUI running), both share this session
+            if (startMode == StartMode.CLI) {
+                log.withEnvironment(environment.id).info("Sharing active session ${existingSession.id} for CLI mode (/bin/bash)")
+                return@withContext existingSession
+            }
+        }
+
+        val sessionId = existingSession?.id ?: SessionId.generate()
         log.withEnvironment(environment.id).info(
             "Initiating session startup sequence: Session=$sessionId for ${environment.id} startMode=$startMode",
             details = mapOf(
@@ -132,7 +153,7 @@ class DefaultSessionManager(
             log.withEnvironment(environment.id).info("[INFO] Guest ready")
 
             if (startMode == StartMode.CLI) {
-                log.withEnvironment(environment.id).info("[RUNTIME] CLI session requested")
+                log.withEnvironment(environment.id).info("[RUNTIME] CLI session requested: using /bin/bash instead of lddm")
                 val rootfsDir = storage.rootfsDir(environment.id)
                 val initFile = File(rootfsDir, GuestInit.GUEST_INIT_PATH.removePrefix("/"))
                 if (!initFile.exists()) {
@@ -140,11 +161,14 @@ class DefaultSessionManager(
                     initFile.writeText(GuestInit.SCRIPT_CONTENT)
                     initFile.setExecutable(true, false)
                 }
-                session = session.copy(state = SessionState.CLI_READY)
+                session = session.copy(
+                    state = SessionState.CLI_READY,
+                    startMode = StartMode.CLI,
+                )
                 sessionMap[sessionId] = session
                 _sessions.value = sessionMap.toMap()
                 persistSessionState(session)
-                log.withEnvironment(environment.id).info("[RUNTIME] CLI_READY")
+                log.withEnvironment(environment.id).info("[RUNTIME] CLI_READY (shared session: $sessionId, /bin/bash)")
                 return@withContext session
             }
 
