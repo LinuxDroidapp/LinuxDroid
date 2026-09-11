@@ -702,14 +702,20 @@ class EnvironmentViewModel @Inject constructor(
                 _installStatusText.update { it + (envId to "Staging archive...") }
                 _installProgress.update { it + (envId to 0.05f) }
 
-                // Resolve filename
-                val cursor = context.contentResolver.query(archiveUri, null, null, null, null)
-                val displayName = cursor?.use {
-                    if (it.moveToFirst()) {
-                        val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (nameIndex >= 0) it.getString(nameIndex) else null
-                    } else null
-                } ?: "local-rootfs.tar.gz"
+                // Resolve filename safely
+                var displayName = "local-rootfs.tar.gz"
+                try {
+                    context.contentResolver.query(archiveUri, null, null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            if (nameIndex >= 0) {
+                                cursor.getString(nameIndex)?.let { displayName = it }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    log.warn("Failed to query display name for $archiveUri", e)
+                }
 
                 val tempArchive = File(context.cacheDir, "imported_${System.currentTimeMillis()}_$displayName")
                 _installerLogs.update { map ->

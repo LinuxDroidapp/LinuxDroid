@@ -25,9 +25,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -36,6 +40,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -45,8 +51,12 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -69,6 +79,8 @@ import com.linuxdroid.app.ui.viewmodel.SettingsViewModel
 import com.linuxdroid.core.model.*
 import com.linuxdroid.core.storage.StorageAuthorizationState
 import java.io.File
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Home screen:
@@ -133,13 +145,15 @@ fun HomeScreen(
     Scaffold(
         containerColor = neuColors.background,
     ) { padding ->
+        val scrollState = rememberScrollState()
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(neuColors.background)
                 .padding(padding)
-                .statusBarsPadding()
-                .verticalScroll(rememberScrollState())
+                .consumeWindowInsets(padding)
+                .imePadding()
+                .verticalScroll(scrollState)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -1402,24 +1416,30 @@ private fun RootfsInstallationCard(
     var archiveValidationNote by remember { mutableStateOf<String?>(null) }
 
     val archivePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
             localArchiveUri = uri
-            val cursor = context.contentResolver.query(uri, null, null, null, null)
-            val name = cursor?.use {
-                if (it.moveToFirst()) {
-                    val idx = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (idx >= 0) it.getString(idx) else null
-                } else null
-            } ?: "archive.tar.gz"
-            val size = cursor?.use {
-                if (it.moveToFirst()) {
-                    val idx = it.getColumnIndex(OpenableColumns.SIZE)
-                    if (idx >= 0) it.getLong(idx) else null
-                } else null
+            try {
+                val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+            } catch (_: Exception) {}
+
+            var name: String? = null
+            var size: Long? = null
+            try {
+                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0) name = cursor.getString(idx)
+                        val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                        if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) size = cursor.getLong(sizeIdx)
+                    }
+                }
+            } catch (e: Exception) {
+                timber.log.Timber.w(e, "Failed to query archive metadata for URI: %s", uri)
             }
-            localArchiveName = name
+            localArchiveName = name ?: "archive.tar.gz"
             localArchiveSize = size
 
             var validGzipHeader = false
@@ -1429,19 +1449,44 @@ private fun RootfsInstallationCard(
                     val b2 = stream.read()
                     validGzipHeader = (b1 == 0x1f && b2 == 0x8b)
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                timber.log.Timber.w(e, "Failed to read gzip header for URI: %s", uri)
+            }
 
-            if (name.endsWith(".tar.gz", ignoreCase = true) || name.endsWith(".tgz", ignoreCase = true) || validGzipHeader) {
+            val resolvedName = localArchiveName ?: "archive.tar.gz"
+            if (resolvedName.endsWith(".tar.gz", ignoreCase = true) || resolvedName.endsWith(".tgz", ignoreCase = true) || validGzipHeader) {
                 isArchiveValid = true
                 archiveValidationNote = if (validGzipHeader) "Verified ARM64 GZIP archive (.tar.gz)" else "GZIP tarball detected (.tar.gz)"
-                if (name.contains("debian", ignoreCase = true)) {
+                if (resolvedName.contains("debian", ignoreCase = true)) {
                     localArchiveDistro = Distribution.DEBIAN
-                } else if (name.contains("ubuntu", ignoreCase = true)) {
+                } else if (resolvedName.contains("ubuntu", ignoreCase = true)) {
                     localArchiveDistro = Distribution.UBUNTU
                 }
             } else {
                 isArchiveValid = false
                 archiveValidationNote = "Invalid archive format. Please select a .tar.gz rootfs file."
+            }
+        }
+    }
+
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val coroutineScope = rememberCoroutineScope()
+
+    val usernameRequester = remember { BringIntoViewRequester() }
+    val passwordRequester = remember { BringIntoViewRequester() }
+    val confirmPasswordRequester = remember { BringIntoViewRequester() }
+
+    var focusedField by remember { mutableStateOf<String?>(null) }
+    val isImeVisible = WindowInsets.isImeVisible
+
+    LaunchedEffect(isImeVisible) {
+        if (isImeVisible) {
+            kotlinx.coroutines.delay(150)
+            when (focusedField) {
+                "username" -> usernameRequester.bringIntoView()
+                "password" -> passwordRequester.bringIntoView()
+                "confirmPassword" -> confirmPasswordRequester.bringIntoView()
             }
         }
     }
@@ -1793,7 +1838,7 @@ private fun RootfsInstallationCard(
                         )
 
                         NeuButton(
-                            onClick = { archivePickerLauncher.launch("*/*") },
+                            onClick = { archivePickerLauncher.launch(arrayOf("*/*")) },
                             modifier = Modifier.fillMaxWidth(),
                             isAccent = localArchiveUri == null,
                             shape = RoundedCornerShape(12.dp),
@@ -1951,6 +1996,13 @@ private fun RootfsInstallationCard(
                             Icon(Icons.Default.Person, contentDescription = null, tint = neuColors.primaryAccent, modifier = Modifier.size(20.dp))
                         },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Ascii,
+                            imeAction = ImeAction.Next,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                        ),
                         isError = usernameResult != null && username.isNotEmpty(),
                         supportingText = {
                             if (usernameResult != null && username.isNotEmpty()) {
@@ -1966,7 +2018,18 @@ private fun RootfsInstallationCard(
                             unfocusedBorderColor = neuColors.borderHighlight,
                             focusedLabelColor = neuColors.primaryAccent,
                         ),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bringIntoViewRequester(usernameRequester)
+                            .onFocusEvent {
+                                if (it.isFocused) {
+                                    focusedField = "username"
+                                    coroutineScope.launch {
+                                        kotlinx.coroutines.delay(100)
+                                        usernameRequester.bringIntoView()
+                                    }
+                                }
+                            },
                     )
 
                     // Password Input
@@ -1988,6 +2051,13 @@ private fun RootfsInstallationCard(
                             }
                         },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Next,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                        ),
                         visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = neuColors.textPrimary,
@@ -1996,7 +2066,18 @@ private fun RootfsInstallationCard(
                             unfocusedBorderColor = neuColors.borderHighlight,
                             focusedLabelColor = neuColors.primaryAccent,
                         ),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bringIntoViewRequester(passwordRequester)
+                            .onFocusEvent {
+                                if (it.isFocused) {
+                                    focusedField = "password"
+                                    coroutineScope.launch {
+                                        kotlinx.coroutines.delay(100)
+                                        passwordRequester.bringIntoView()
+                                    }
+                                }
+                            },
                     )
 
                     // Confirm Password Input
@@ -2018,6 +2099,13 @@ private fun RootfsInstallationCard(
                             }
                         },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = { keyboardController?.hide() }
+                        ),
                         visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                         isError = passwordResult != null && (password.isNotEmpty() || confirmPassword.isNotEmpty()),
                         supportingText = {
@@ -2034,7 +2122,18 @@ private fun RootfsInstallationCard(
                             unfocusedBorderColor = neuColors.borderHighlight,
                             focusedLabelColor = neuColors.primaryAccent,
                         ),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bringIntoViewRequester(confirmPasswordRequester)
+                            .onFocusEvent {
+                                if (it.isFocused) {
+                                    focusedField = "confirmPassword"
+                                    coroutineScope.launch {
+                                        kotlinx.coroutines.delay(100)
+                                        confirmPasswordRequester.bringIntoView()
+                                    }
+                                }
+                            },
                     )
 
                     // ── Explicit Action Button (Install or Import) ───────────────────
