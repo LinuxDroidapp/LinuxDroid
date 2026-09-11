@@ -1,19 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-# LEGACY — RETIRED SCRIPT
+# LinuxDroid — Production Wayland, Weston & Native Dependencies Stack Builder
 # =============================================================================
-# This script built the Wayland/Weston/Pixman stack from Android NDK source
-# using the vendor/wayland, vendor/weston, and vendor/pixman Git submodules.
-#
-# These submodules have been removed. Weston, Wayland, and Pixman are now
-# Linux rootfs dependencies supplied by the Linux distribution package manager.
-# They are not Android project build targets.
-#
-# Pre-built .so artifacts (libweston-17.so, libwayland-*.so, libpixman-1.so)
-# remain in app/src/main/jniLibs/arm64-v8a/ and native/weston/prefix/ for
-# use by the Android bridge library (native/bridge).
-#
-# Do NOT run this script. It will fail because vendor/weston is no longer present.
+# Builds Wayland, Weston (libweston-17), Pixman (NEON), libffi, libxkbcommon,
+# and libdrm for Android arm64-v8a using Android NDK r29 and Meson.
+# Enforces 16 KB ELF page alignment (-Wl,-z,max-page-size=16384).
+# Stages artifacts to build/linuxdroid/ (wayland/, weston/, native-libs/)
+# and installs to app/src/main/jniLibs/arm64-v8a/ and app/src/main/assets/xkb/.
 # =============================================================================
 set -euo pipefail
 
@@ -94,6 +87,8 @@ wayland-scanner = '$HOST_TOOLS_DIR/bin/wayland-scanner'
 [built-in options]
 c_args = ['-DANDROID', '-D__ANDROID_API__=35', '-O3', '-fPIC']
 cpp_args = ['-DANDROID', '-D__ANDROID_API__=35', '-O3', '-fPIC']
+c_link_args = ['-Wl,-z,max-page-size=16384']
+cpp_link_args = ['-Wl,-z,max-page-size=16384']
 
 [properties]
 pkg_config_libdir = ['$PREFIX/lib/pkgconfig', '$PREFIX/share/pkgconfig']
@@ -116,41 +111,15 @@ VENDOR_WAYLAND_PROTOCOLS="$VENDOR_DIR/wayland-protocols"
 VENDOR_PIXMAN="$VENDOR_DIR/pixman"
 VENDOR_WESTON="$VENDOR_DIR/weston"
 
-check_pinned_submodule() {
-    local name="$1"
-    local path="$2"
-    local expected_commit="$3"
-    [[ -d "$path/.git" || -f "$path/.git" ]] || die "Submodule $name not found at $path. Run 'git submodule update --init --recursive'."
-    local actual_commit
-    actual_commit="$(git -C "$path" rev-parse HEAD)"
-    if [[ "$actual_commit" != "$expected_commit"* ]]; then
-        die "Submodule $name commit mismatch: expected $expected_commit, got $actual_commit"
-    fi
-    info "Submodule $name verified at $actual_commit"
-}
-
-sync_vendor_to_src() {
-    local name="$1"
-    local vendor_path="$2"
-    local target_dir="$SRC_DIR/$name"
-    info "Staging submodule $name from $vendor_path to $target_dir..."
-    rm -rf "$target_dir"
-    mkdir -p "$target_dir"
-    cp -a "$vendor_path"/* "$target_dir/"
-    if [[ -d "$vendor_path/.git" || -f "$vendor_path/.git" ]]; then
-        cp -a "$vendor_path"/.git "$target_dir/" 2>/dev/null || true
-    fi
-}
+WAYLAND_REPO="https://gitlab.freedesktop.org/wayland/wayland.git"
+PROTOCOLS_REPO="https://gitlab.freedesktop.org/wayland/wayland-protocols.git"
+PIXMAN_REPO="https://gitlab.freedesktop.org/pixman/pixman.git"
+WESTON_REPO="https://gitlab.freedesktop.org/wayland/weston.git"
 
 WAYLAND_COMMIT="381af21cf84f13be0ca24aed756a9cded3290d49"
 PROTOCOLS_COMMIT="afb614d5fcbd02d261a6ae91920aa91cf3915a8a"
 PIXMAN_COMMIT="cc03b56c7b2b2e06199bb9b115af55f5b42b12ba"
 WESTON_COMMIT="9669073fe8f411ef3e9f40a36d0ec9aa68362fa2"
-
-check_pinned_submodule "wayland" "$VENDOR_WAYLAND" "$WAYLAND_COMMIT"
-check_pinned_submodule "wayland-protocols" "$VENDOR_WAYLAND_PROTOCOLS" "$PROTOCOLS_COMMIT"
-check_pinned_submodule "pixman" "$VENDOR_PIXMAN" "$PIXMAN_COMMIT"
-check_pinned_submodule "weston" "$VENDOR_WESTON" "$WESTON_COMMIT"
 
 fetch_repo() {
     local name="$1"
@@ -163,15 +132,40 @@ fetch_repo() {
         git clone "$url" "$target_dir"
     fi
     info "Verifying $name checkout ($commit)..."
-    git -C "$target_dir" fetch --tags origin
-    git -C "$target_dir" checkout -f "$commit"
+    git -C "$target_dir" fetch --tags origin 2>/dev/null || true
+    git -C "$target_dir" checkout -f "$commit" 2>/dev/null || {
+        git -C "$target_dir" fetch origin "$commit" 2>/dev/null || \
+        git -C "$target_dir" fetch origin refs/merge-requests/*:refs/remotes/origin/mr/* 2>/dev/null || true
+        git -C "$target_dir" checkout -f "$commit"
+    }
     local actual_commit
     actual_commit="$(git -C "$target_dir" rev-parse HEAD)"
     [[ "$actual_commit" == "$commit"* ]] || die "$name commit mismatch: expected $commit, got $actual_commit"
 }
 
-# --- Step A: Wayland & Host Scanner (Submodule: vendor/wayland) ---
-sync_vendor_to_src "wayland" "$VENDOR_WAYLAND"
+prepare_source() {
+    local name="$1"
+    local vendor_path="$2"
+    local url="$3"
+    local commit="$4"
+    local target_dir="$SRC_DIR/$name"
+
+    if [[ -d "$vendor_path" && (-d "$vendor_path/.git" || -f "$vendor_path/.git" || -f "$vendor_path/meson.build") ]]; then
+        info "Staging $name from $vendor_path to $target_dir..."
+        rm -rf "$target_dir"
+        mkdir -p "$target_dir"
+        cp -a "$vendor_path"/* "$target_dir/"
+        if [[ -d "$vendor_path/.git" || -f "$vendor_path/.git" ]]; then
+            cp -a "$vendor_path"/.git "$target_dir/" 2>/dev/null || true
+        fi
+    else
+        info "Vendor path $vendor_path not found. Using repository $url..."
+        fetch_repo "$name" "$url" "$commit"
+    fi
+}
+
+# --- Step A: Wayland & Host Scanner ---
+prepare_source "wayland" "$VENDOR_WAYLAND" "$WAYLAND_REPO" "$WAYLAND_COMMIT"
 
 info "Building host wayland-scanner..."
 rm -rf "$SRC_DIR/wayland/build-host"
@@ -225,8 +219,8 @@ meson setup "$SRC_DIR/wayland/build-android" "$SRC_DIR/wayland" \
     -Dscanner=false -Dlibraries=true -Ddocumentation=false -Ddtd_validation=false -Dtests=false
 ninja -C "$SRC_DIR/wayland/build-android" install
 
-# --- Step D: wayland-protocols (Submodule: vendor/wayland-protocols) ---
-sync_vendor_to_src "wayland-protocols" "$VENDOR_WAYLAND_PROTOCOLS"
+# --- Step D: wayland-protocols ---
+prepare_source "wayland-protocols" "$VENDOR_WAYLAND_PROTOCOLS" "$PROTOCOLS_REPO" "$PROTOCOLS_COMMIT"
 
 info "Installing wayland-protocols..."
 rm -rf "$SRC_DIR/wayland-protocols/build-android"
@@ -236,10 +230,9 @@ meson setup "$SRC_DIR/wayland-protocols/build-android" "$SRC_DIR/wayland-protoco
     -Dtests=false
 ninja -C "$SRC_DIR/wayland-protocols/build-android" install
 
-# --- Step E: Pixman (Built from pinned submodule vendor/pixman with NEON) ---
-PIXMAN_REPO="https://github.com/LinuxDroidapp/pixman.git"
+# --- Step E: Pixman (Built with NEON) ---
 PIXMAN_DIR="$SRC_DIR/pixman"
-sync_vendor_to_src "pixman" "$VENDOR_PIXMAN"
+prepare_source "pixman" "$VENDOR_PIXMAN" "$PIXMAN_REPO" "$PIXMAN_COMMIT"
 PIXMAN_RESOLVED_SHA="$PIXMAN_COMMIT"
 info "Pixman resolved commit SHA: $PIXMAN_RESOLVED_SHA"
 
@@ -318,11 +311,10 @@ meson setup "$LIBDRM_DIR/build-android" "$LIBDRM_DIR" \
     -Dfreedreno=disabled -Dtegra=disabled -Dvc4=disabled -Detnaviv=disabled -Dcairo-tests=disabled -Dman-pages=disabled -Dvalgrind=disabled -Dtests=false
 ninja -C "$LIBDRM_DIR/build-android" install
 
-# --- Step I: Weston / libweston (Built from pinned submodule vendor/weston) ---
-WESTON_REPO="https://github.com/LinuxDroidapp/weston.git"
+# --- Step I: Weston / libweston ---
 WESTON_BRANCH="main"
 WESTON_DIR="$SRC_DIR/weston"
-sync_vendor_to_src "weston" "$VENDOR_WESTON"
+prepare_source "weston" "$VENDOR_WESTON" "$WESTON_REPO" "$WESTON_COMMIT"
 WESTON_RESOLVED_SHA="$WESTON_COMMIT"
 info "Weston resolved commit SHA: $WESTON_RESOLVED_SHA"
 
@@ -630,29 +622,44 @@ info "Recorded build provenance -> $PROVENANCE_FILE"
 
 # --- Step J: Sync Artifacts to App jniLibs and assets ---
 info "Syncing shared libraries to Android jniLibs/arm64-v8a..."
+# --- Step J: Staging to build/linuxdroid and App packaging ---
+info "Staging build artifacts to build/linuxdroid..."
+STAGE_WAYLAND="$PROJECT_ROOT/build/linuxdroid/wayland"
+STAGE_WESTON="$PROJECT_ROOT/build/linuxdroid/weston"
+STAGE_NATIVE_LIBS="$PROJECT_ROOT/build/linuxdroid/native-libs"
 JNILIBS_DIR="$PROJECT_ROOT/app/src/main/jniLibs/arm64-v8a"
-mkdir -p "$JNILIBS_DIR"
 
-# Remove any previous or stale libweston libraries to avoid version conflicts
-rm -f "$JNILIBS_DIR"/libweston-*.so
+mkdir -p "$STAGE_WAYLAND" "$STAGE_WESTON" "$STAGE_NATIVE_LIBS" "$JNILIBS_DIR"
 
-REQUIRED_LIBS=(
-    "libweston-${LIBWESTON_MAJOR}.so"
-    "libwayland-server.so"
-    "libwayland-client.so"
-    "libwayland-cursor.so"
-    "libpixman-1.so"
-    "libxkbcommon.so"
-    "libdrm.so"
-    "libffi.so"
-)
-
-for lib in "${REQUIRED_LIBS[@]}"; do
-    src_file="$PREFIX/lib/$lib"
-    [[ -f "$src_file" ]] || die "Built library not found in prefix: $src_file"
-    cp -f "$src_file" "$JNILIBS_DIR/$lib"
-    info "Installed $lib -> $JNILIBS_DIR/$lib"
+# Wayland libraries
+for lib in libwayland-server.so libwayland-client.so libwayland-cursor.so; do
+    cp -f "$PREFIX/lib/$lib" "$STAGE_WAYLAND/$lib"
+    cp -f "$PREFIX/lib/$lib" "$JNILIBS_DIR/$lib"
+    info "Staged & installed $lib"
 done
+
+# Weston library
+rm -f "$JNILIBS_DIR"/libweston-*.so
+cp -f "$PREFIX/lib/libweston-${LIBWESTON_MAJOR}.so" "$STAGE_WESTON/libweston-${LIBWESTON_MAJOR}.so"
+cp -f "$PREFIX/lib/libweston-${LIBWESTON_MAJOR}.so" "$JNILIBS_DIR/libweston-${LIBWESTON_MAJOR}.so"
+info "Staged & installed libweston-${LIBWESTON_MAJOR}.so"
+
+# Native dependencies
+for lib in libpixman-1.so libxkbcommon.so libdrm.so libffi.so; do
+    cp -f "$PREFIX/lib/$lib" "$STAGE_NATIVE_LIBS/$lib"
+    cp -f "$PREFIX/lib/$lib" "$JNILIBS_DIR/$lib"
+    info "Staged & installed $lib"
+done
+
+# gl-renderer plugin
+if [[ -f "$PREFIX/lib/libweston-${LIBWESTON_MAJOR}/gl-renderer.so" ]]; then
+    cp -f "$PREFIX/lib/libweston-${LIBWESTON_MAJOR}/gl-renderer.so" "$STAGE_NATIVE_LIBS/libgl-renderer.so"
+    cp -f "$PREFIX/lib/libweston-${LIBWESTON_MAJOR}/gl-renderer.so" "$JNILIBS_DIR/libgl-renderer.so"
+    info "Staged & installed gl-renderer from build"
+elif [[ -f "$JNILIBS_DIR/libgl-renderer.so" ]]; then
+    cp -f "$JNILIBS_DIR/libgl-renderer.so" "$STAGE_NATIVE_LIBS/libgl-renderer.so"
+    info "Staged existing libgl-renderer.so"
+fi
 
 info "Syncing XKB configuration data to Android assets/xkb..."
 ASSETS_XKB="$PROJECT_ROOT/app/src/main/assets/xkb"
@@ -663,16 +670,29 @@ if [[ -d "$PREFIX/share/X11/xkb" ]]; then
     info "Copied XKB data -> $ASSETS_XKB"
 fi
 
-# --- Step K: Strict ELF & Architecture Verification ---
-info "Verifying ELF 64-bit AArch64 for all target libraries..."
-for lib in "${REQUIRED_LIBS[@]}"; do
-    lib_path="$JNILIBS_DIR/$lib"
-    file_info="$(file "$lib_path")"
-    echo "  $lib: $file_info"
-    if [[ "$file_info" != *"ELF 64-bit"* || "$file_info" != *"aarch64"* ]]; then
-        die "Architecture verification failed for $lib: $file_info"
-    fi
-done
+# --- Step K: Strict ELF & 16 KB Page Alignment Verification ---
+info "Verifying ELF 64-bit AArch64 and 16 KB page alignment for all libraries..."
+python3 -c '
+import subprocess, sys
+
+readelf = sys.argv[1]
+for path in sys.argv[2:]:
+    file_info = subprocess.check_output(["file", path], text=True)
+    if "ELF 64-bit" not in file_info or "aarch64" not in file_info:
+        print(f"ERROR: {path} is not ELF 64-bit aarch64 ({file_info})", file=sys.stderr)
+        sys.exit(1)
+
+    out = subprocess.check_output([readelf, "-l", path], text=True)
+    aligns = [int(line.split()[-1], 16) for line in out.splitlines() if line.strip().startswith("LOAD")]
+    if not aligns:
+        print(f"ERROR: No LOAD segments in {path}", file=sys.stderr)
+        sys.exit(1)
+    for a in aligns:
+        if a < 0x4000:
+            print(f"ERROR: {path} alignment {hex(a)} < 0x4000", file=sys.stderr)
+            sys.exit(1)
+    print(f"  OK (ELF 64-bit aarch64, 16 KB aligned): {path}")
+' "$TOOLCHAIN_BIN/llvm-readelf" "$JNILIBS_DIR"/*.so
 
 info "Verifying libweston-${LIBWESTON_MAJOR} dynamic dependencies (no X11 / XWayland / desktop deps)..."
 "$TOOLCHAIN_BIN/llvm-readelf" -d "$JNILIBS_DIR/libweston-${LIBWESTON_MAJOR}.so" | grep NEEDED
@@ -681,5 +701,5 @@ info "=========================================================="
 info "Native Wayland Dependency Foundation build SUCCESSFUL!"
 info "Target ABI: arm64-v8a (AArch64)"
 info "Prefix: $PREFIX"
-info "Libraries: ${REQUIRED_LIBS[*]}"
+info "Staging: $PROJECT_ROOT/build/linuxdroid/"
 info "=========================================================="

@@ -226,7 +226,6 @@ set(CPACK_DEBIAN_PACKAGE_SECTION "x11")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/LinuxDroidapp/LDDM")
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.34), libstdc++6 (>= 13)")
-set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "weston (>= 10.0)")
 set(CPACK_DEBIAN_PACKAGE_SUGGESTS "linuxdroid-desktop-environment | ldde")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/debian/postinst;${CMAKE_CURRENT_SOURCE_DIR}/packaging/debian/prerm;${CMAKE_CURRENT_SOURCE_DIR}/packaging/debian/postrm;${CMAKE_CURRENT_SOURCE_DIR}/packaging/debian/conffiles"

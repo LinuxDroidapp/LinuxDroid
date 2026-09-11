@@ -39,6 +39,8 @@ if [[ "${HOST_ARCH}" != "aarch64" && "${HOST_ARCH}" != "arm64" ]]; then
             "-DCMAKE_SYSTEM_PROCESSOR=aarch64"
             "-DCMAKE_C_COMPILER=${CC_BIN}"
             "-DCMAKE_CXX_COMPILER=${CXX_BIN}"
+            "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--allow-shlib-undefined -Wl,-z,max-page-size=16384"
+            "-DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined -Wl,-z,max-page-size=16384"
         )
     else
         echo "ERROR: Cross-compiler aarch64-linux-gnu-gcc/g++ not found!" >&2
@@ -87,9 +89,7 @@ LDDE_BUILD_DIR="${LDDE_DIR}/build-arm64"
 LDDE_OUT_DIR="${LDDE_DIR}/dist"
 mkdir -p "${LDDE_OUT_DIR}"
 
-if [[ -d "/usr/lib/aarch64-linux-gnu/pkgconfig" ]]; then
-    export PKG_CONFIG_PATH="/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH:-}"
-fi
+export PKG_CONFIG_PATH="/usr/lib/aarch64-linux-gnu/pkgconfig:${ROOT_DIR}/native/weston/prefix/lib/pkgconfig:${ROOT_DIR}/native/weston/prefix/share/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH:-}"
 
 cmake -S "${LDDE_DIR}" -B "${LDDE_BUILD_DIR}"     "${CMAKE_TOOLCHAIN_ARGS[@]}"     -DCMAKE_BUILD_TYPE=Release     -DCMAKE_INSTALL_PREFIX=/usr     -DCMAKE_INSTALL_SYSCONFDIR=/etc     -DINSTALL_DEV_LIBRARIES=OFF     -DBUILD_TESTING=OFF     -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64
 
@@ -141,7 +141,7 @@ validate_deb() {
     dpkg-deb -x "${deb}" "${tmp_inspect}"
 
     local elf_files
-    elf_files="$(find "${tmp_inspect}" -type f -executable)"
+    elf_files="$(find "${tmp_inspect}" -type f)"
     for elf in ${elf_files}; do
         if file "${elf}" | grep -q "ELF"; then
             if ! file "${elf}" | grep -E -q "ARM aarch64|aarch64"; then
@@ -149,7 +149,21 @@ validate_deb() {
                 rm -rf "${tmp_inspect}"
                 exit 1
             fi
-            echo "  Verified ELF: $(basename "${elf}") is ARM aarch64"
+            python3 -c '
+import subprocess, sys
+path = sys.argv[1]
+out = subprocess.check_output(["llvm-readelf", "-l", path], text=True)
+aligns = [int(line.split()[-1], 16) for line in out.splitlines() if line.strip().startswith("LOAD")]
+for a in aligns:
+    if a < 0x4000:
+        print(f"ERROR: {path} has alignment {hex(a)} < 0x4000", file=sys.stderr)
+        sys.exit(1)
+' "${elf}" || {
+                echo "ERROR: ${elf} in $(basename "${deb}") is not 16 KB aligned!" >&2
+                rm -rf "${tmp_inspect}"
+                exit 1
+            }
+            echo "  Verified ELF: $(basename "${elf}") is ARM aarch64 (16 KB aligned)"
         fi
     done
     rm -rf "${tmp_inspect}"
@@ -164,8 +178,15 @@ validate_deb "${LDDE_DEB}" "linuxdroid-desktop-environment"
 # -----------------------------------------------------------------------------
 echo ""
 echo "------------------------------------------------------------------------"
-echo " [4/4] Staging Assets into Android APK Resource Tree..."
+echo " [4/4] Staging Assets into build/linuxdroid/ and APK Resource Tree..."
 echo "------------------------------------------------------------------------"
+
+STAGE_LDDM_DIR="${ROOT_DIR}/build/linuxdroid/lddm"
+STAGE_LDDE_DIR="${ROOT_DIR}/build/linuxdroid/ldde"
+mkdir -p "${STAGE_LDDM_DIR}" "${STAGE_LDDE_DIR}"
+cp -f "${LDDM_DEB}" "${STAGE_LDDM_DIR}/"
+cp -f "${LDDE_DEB}" "${STAGE_LDDE_DIR}/"
+echo ">>> Staged packages to build/linuxdroid/lddm and build/linuxdroid/ldde"
 
 mkdir -p "${ASSETS_PKG_DIR}"
 mkdir -p "${ASSETS_SCRIPTS_DIR}"

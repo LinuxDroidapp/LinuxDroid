@@ -118,7 +118,7 @@ fun GuiInstallerScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         when (currentGuiState) {
-                            GuiState.INSTALLED -> {
+                            GuiState.INSTALLED, GuiState.STARTING, GuiState.RUNNING -> {
                                 Icon(
                                     Icons.Default.CheckCircle,
                                     contentDescription = "Installed",
@@ -127,13 +127,13 @@ fun GuiInstallerScreen(
                                 )
                                 Column {
                                     Text(
-                                        "Graphical Desktop Ready",
+                                        if (currentGuiState == GuiState.RUNNING) "Graphical Desktop Active" else "Graphical Desktop Ready",
                                         fontWeight = FontWeight.Bold,
                                         color = neuColors.textPrimary,
                                         fontSize = 16.sp,
                                     )
                                     Text(
-                                        "Wayland, Weston, LDDM, and LDDE are installed.",
+                                        "Wayland, Weston, LDDM, and LDDE are ready.",
                                         color = neuColors.textSecondary,
                                         fontSize = 12.sp,
                                     )
@@ -234,7 +234,7 @@ fun GuiInstallerScreen(
                             Text("Install GUI")
                         }
                     }
-                    GuiState.INSTALLED -> {
+                    GuiState.INSTALLED, GuiState.STARTING, GuiState.RUNNING -> {
                         Button(
                             onClick = {
                                 navController.navigate(Screen.Desktop.route(environmentId))
@@ -244,7 +244,7 @@ fun GuiInstallerScreen(
                         ) {
                             Icon(Icons.Default.DesktopWindows, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Launch Desktop")
+                            Text(if (currentGuiState == GuiState.RUNNING) "Switch to Desktop" else "Launch Desktop")
                         }
                         OutlinedButton(
                             onClick = { environment?.let { viewModel.repairGui(it) } },

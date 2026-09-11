@@ -53,6 +53,7 @@ data class NeuColorScheme(
     val warning: Color,
     val error: Color,
     val borderHighlight: Color,
+    val surfaceHighlight: Color = borderHighlight,
 )
 
 val NeuLightColors = NeuColorScheme(

@@ -85,3 +85,4 @@ All components are classified according to the migration charter:
 - Target SDK: compileSdk 37, minSdk 36, targetSdk 37.
 - Baseline NDK: 30.0.16138531 (NDK r30 RC).
 - Target NDK: 29.0.14206865 (NDK r29 stable).
+

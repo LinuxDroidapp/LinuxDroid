@@ -370,7 +370,12 @@ log_step "[5/7] Installing Android SDK components matching CI"
 
 REQUIRED_PACKAGES=()
 REQUIRED_PACKAGES+=("platform-tools")
-REQUIRED_PACKAGES+=("platforms;android-${COMPILE_SDK}")
+if [[ "$COMPILE_SDK" == "37" ]]; then
+    REQUIRED_PACKAGES+=("platforms;android-37.0")
+    REQUIRED_PACKAGES+=("platforms;android-36")
+else
+    REQUIRED_PACKAGES+=("platforms;android-${COMPILE_SDK}")
+fi
 REQUIRED_PACKAGES+=("build-tools;${BUILD_TOOLS}")
 
 if [[ "$INSTALL_NDK" == true ]]; then
@@ -389,6 +394,9 @@ for pkg in "${REQUIRED_PACKAGES[@]}"; do
         case "$pkg" in
             "platform-tools")
                 [[ -d "$ANDROID_SDK_ROOT/platform-tools" ]] && ALREADY_INSTALLED=true
+                ;;
+            "platforms;android-37.0")
+                [[ -d "$ANDROID_SDK_ROOT/platforms/android-37.0" || -d "$ANDROID_SDK_ROOT/platforms/android-37" ]] && ALREADY_INSTALLED=true
                 ;;
             "platforms;android-"*)
                 [[ -d "$ANDROID_SDK_ROOT/platforms/android-${COMPILE_SDK}" ]] && ALREADY_INSTALLED=true
@@ -418,6 +426,17 @@ else
     log_info "Installing missing components: ${PACKAGES_TO_INSTALL[*]}"
     "$SDKMANAGER_BIN" --sdk_root="$ANDROID_SDK_ROOT" --channel=3 "${PACKAGES_TO_INSTALL[@]}"
     log_success "SDK components installation complete."
+fi
+
+# Ensure platforms/android-37 exists
+if [[ "$COMPILE_SDK" == "37" && ! -d "$ANDROID_SDK_ROOT/platforms/android-37" ]]; then
+    if [[ -d "$ANDROID_SDK_ROOT/platforms/android-37.0" ]]; then
+        ln -sfn android-37.0 "$ANDROID_SDK_ROOT/platforms/android-37"
+        log_info "Linked platforms/android-37 -> android-37.0"
+    elif [[ -d "$ANDROID_SDK_ROOT/platforms/android-36" ]]; then
+        ln -sfn android-36 "$ANDROID_SDK_ROOT/platforms/android-37"
+        log_info "Linked platforms/android-37 -> android-36"
+    fi
 fi
 
 # Ensure modern CMake (e.g. 4.4.3) is available in Android SDK cmake directory

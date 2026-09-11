@@ -483,7 +483,9 @@ private fun NeuGuiLaunchCard(
                         ),
                     ) {
                         val badgeText = when (guiState) {
-                            GuiState.INSTALLED -> "Wayland / X11"
+                            GuiState.RUNNING -> "Running"
+                            GuiState.STARTING -> "Starting..."
+                            GuiState.INSTALLED -> "Wayland"
                             GuiState.INSTALLING -> "Installing..."
                             GuiState.REPAIRING -> "Repairing..."
                             GuiState.FAILED -> "Failed (Tap to fix)"
@@ -495,7 +497,8 @@ private fun NeuGuiLaunchCard(
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = when (guiState) {
-                                GuiState.INSTALLED -> neuColors.secondaryAccent
+                                GuiState.RUNNING -> neuColors.success
+                                GuiState.STARTING, GuiState.INSTALLED -> neuColors.secondaryAccent
                                 GuiState.FAILED -> MaterialTheme.colorScheme.error
                                 GuiState.INSTALLING, GuiState.REPAIRING -> neuColors.primaryAccent
                                 GuiState.NOT_INSTALLED -> neuColors.textSecondary

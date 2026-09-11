@@ -82,3 +82,4 @@ To prevent silent breakage upon toolchain upgrades or header changes, `linuxdroi
 - `static_assert(offsetof(struct linuxdroid_gl_renderbuffer, output) == 0, "output offset invalid");`
 - `static_assert(offsetof(struct linuxdroid_gl_renderbuffer, fb) == 56, "fb offset invalid");`
 - `static_assert(offsetof(struct linuxdroid_gl_renderbuffer, link) == 80, "link offset invalid");`
+

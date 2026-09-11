@@ -107,3 +107,4 @@ LinuxDroid native embedded **libweston-17** executing inside the Android host pr
 - **Ownership**: Workspace management, taskbar, application launcher, and window chrome.
 - **Responsibilities**:
   - Acts as a pure Wayland client communicating over `WAYLAND_DISPLAY=wayland-0`.
+
