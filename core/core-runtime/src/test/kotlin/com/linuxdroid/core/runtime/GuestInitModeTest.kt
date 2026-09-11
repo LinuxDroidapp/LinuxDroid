@@ -25,12 +25,11 @@ class GuestInitModeTest {
 
         // CLI branch
         assertThat(script).contains("clear 2>/dev/null || printf '\\033[H\\033[2J' 2>/dev/null || true")
-        assertThat(script).contains("USER_SHELL=")
-        assertThat(script).contains("export SHELL=\"\$USER_SHELL\"")
-        assertThat(script).contains("exec \"\$SHELL\" -l")
+        assertThat(script).contains("ACTIVE_SHELL=")
+        assertThat(script).contains("export SHELL=\"\$ACTIVE_SHELL\"")
+        assertThat(script).contains("exec \"\$ACTIVE_SHELL\" -l")
 
-        // Deterministic rejection of missing or invalid startMode
-        assertThat(script).contains("Missing startMode: LINUXDROID_START_MODE is not set. Deterministic startup requires 'GUI' or 'CLI'.")
+        // Deterministic rejection of invalid startMode
         assertThat(script).contains("Invalid startMode: '\$START_MODE'. Only 'GUI' and 'CLI' are allowed.")
     }
 
@@ -42,12 +41,8 @@ class GuestInitModeTest {
         // Must clear terminal
         assertThat(cliSection).contains("clear 2>/dev/null || printf '\\033[H\\033[2J' 2>/dev/null || true")
 
-        // Must resolve active user shell from /etc/passwd or fallback
-        assertThat(cliSection).contains("/etc/passwd")
-        assertThat(cliSection).contains("export SHELL=\"\$USER_SHELL\"")
-
         // Must execute active shell as interactive session
-        assertThat(cliSection).contains("exec \"\$SHELL\" -l")
+        assertThat(cliSection).contains("exec \"\$ACTIVE_SHELL\" -l")
 
         // Must never invoke LDDM or GUI component in CLI branch
         assertThat(cliSection).doesNotContain("lddm")

@@ -116,25 +116,63 @@ if [ -d "§HOOKS_DIR" ]; then
     done
 fi
 
-# 4. Hand over to requested workload
+# 4. Resolve active shell and startup mode
+ACTIVE_SHELL=""
+if command -v getent >/dev/null 2>&1 && [ -n "§USER" ]; then
+    ACTIVE_SHELL="§(getent passwd "§USER" 2>/dev/null | cut -d: -f7 || true)"
+elif [ -f /etc/passwd ] && [ -n "§USER" ]; then
+    ACTIVE_SHELL="§(grep "^§{USER}:" /etc/passwd 2>/dev/null | head -n1 | cut -d: -f7 || true)"
+fi
+if [ -z "§ACTIVE_SHELL" ] || [ ! -x "§ACTIVE_SHELL" ] || [ "§ACTIVE_SHELL" = "/bin/false" ] || [ "§ACTIVE_SHELL" = "/usr/sbin/nologin" ]; then
+    ACTIVE_SHELL="§{SHELL:-}"
+fi
+if [ -z "§ACTIVE_SHELL" ] || [ ! -x "§ACTIVE_SHELL" ] || [ "§ACTIVE_SHELL" = "/bin/false" ] || [ "§ACTIVE_SHELL" = "/usr/sbin/nologin" ]; then
+    if [ -x /bin/bash ]; then
+        ACTIVE_SHELL="/bin/bash"
+    elif [ -x /usr/bin/bash ]; then
+        ACTIVE_SHELL="/usr/bin/bash"
+    elif [ -x /bin/sh ]; then
+        ACTIVE_SHELL="/bin/sh"
+    else
+        ACTIVE_SHELL="/usr/bin/sh"
+    fi
+fi
+USER_SHELL="§ACTIVE_SHELL"
+export SHELL="§ACTIVE_SHELL"
+
 echo "[INFO] Guest ready"
 
 START_MODE="§{LINUXDROID_START_MODE:-}"
-if [ "§1" = "GUI" ] || [ "§1" = "CLI" ]; then
-    if [ -z "§START_MODE" ] || [ "§START_MODE" = "§1" ]; then
-        START_MODE="§1"
-        shift
-    fi
+if [ "§1" = "GUI" ]; then
+    START_MODE="GUI"
+    shift
+elif [ "§1" = "CLI" ]; then
+    START_MODE="CLI"
+    shift
+elif [ "§1" = "/usr/bin/lddm" ] || [ "§1" = "/usr/local/bin/lddm" ] || [ "§1" = "lddm" ] || [ "§1" = "weston" ] || [ "§1" = "/usr/bin/weston" ]; then
+    START_MODE="GUI"
+    shift
+elif [ "§1" = "/bin/bash" ] || [ "§1" = "/usr/bin/bash" ] || [ "§1" = "/bin/sh" ] || [ "§1" = "/usr/bin/sh" ] || [ "§1" = "§ACTIVE_SHELL" ]; then
+    START_MODE="CLI"
 fi
 
 if [ -z "§START_MODE" ]; then
-    init_err "Missing startMode: LINUXDROID_START_MODE is not set. Deterministic startup requires 'GUI' or 'CLI'."
-    exit 1
+    START_MODE="CLI"
 fi
 
 echo "[GUEST-INIT] startMode=§START_MODE" >&2
 
 case "§START_MODE" in
+    CLI)
+        clear 2>/dev/null || printf '\033[H\033[2J' 2>/dev/null || true
+        if [ §# -gt 0 ] && [ "§1" != "CLI" ] && [ "§1" != "/bin/bash" ] && [ "§1" != "/usr/bin/bash" ] && [ "§1" != "/bin/sh" ] && [ "§1" != "/usr/bin/sh" ] && [ "§1" != "§ACTIVE_SHELL" ]; then
+            exec "§@"
+        elif [ §# -gt 1 ]; then
+            exec "§@"
+        else
+            exec "§ACTIVE_SHELL" -l
+        fi
+        ;;
     GUI)
         echo "[GUEST-INIT] Handing over to LDDM" >&2
         echo "[LDDM] Starting graphical session"
@@ -144,37 +182,6 @@ case "§START_MODE" in
             exec /usr/local/bin/lddm
         else
             exec lddm
-        fi
-        ;;
-    CLI)
-        clear 2>/dev/null || printf '\033[H\033[2J' 2>/dev/null || true
-        USER_SHELL=""
-        if command -v getent >/dev/null 2>&1 && [ -n "§USER" ]; then
-            USER_SHELL="§(getent passwd "§USER" 2>/dev/null | cut -d: -f7 || true)"
-        elif [ -f /etc/passwd ] && [ -n "§USER" ]; then
-            USER_SHELL="§(grep "^§{USER}:" /etc/passwd 2>/dev/null | head -n1 | cut -d: -f7 || true)"
-        fi
-        if [ -z "§USER_SHELL" ] || [ ! -x "§USER_SHELL" ] || [ "§USER_SHELL" = "/bin/false" ] || [ "§USER_SHELL" = "/usr/sbin/nologin" ]; then
-            USER_SHELL="§{SHELL:-}"
-        fi
-        if [ -z "§USER_SHELL" ] || [ ! -x "§USER_SHELL" ] || [ "§USER_SHELL" = "/bin/false" ] || [ "§USER_SHELL" = "/usr/sbin/nologin" ]; then
-            if [ -x /bin/bash ]; then
-                USER_SHELL="/bin/bash"
-            elif [ -x /usr/bin/bash ]; then
-                USER_SHELL="/usr/bin/bash"
-            elif [ -x /bin/sh ]; then
-                USER_SHELL="/bin/sh"
-            else
-                USER_SHELL="/usr/bin/sh"
-            fi
-        fi
-        export SHELL="§USER_SHELL"
-        if [ §# -gt 0 ] && [ "§1" != "CLI" ] && [ "§1" != "/bin/bash" ] && [ "§1" != "/usr/bin/bash" ] && [ "§1" != "/bin/sh" ] && [ "§1" != "/usr/bin/sh" ] && [ "§1" != "§USER_SHELL" ]; then
-            exec "§@"
-        elif [ §# -gt 1 ]; then
-            exec "§@"
-        else
-            exec "§SHELL" -l
         fi
         ;;
     *)
