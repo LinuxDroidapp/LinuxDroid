@@ -370,6 +370,7 @@ log_step "[5/7] Installing Android SDK components matching CI"
 
 REQUIRED_PACKAGES=()
 REQUIRED_PACKAGES+=("platform-tools")
+REQUIRED_PACKAGES+=("platforms;android-${COMPILE_SDK}")
 if [[ "$COMPILE_SDK" == "37" ]]; then
     REQUIRED_PACKAGES+=("platforms;android-37.0")
     REQUIRED_PACKAGES+=("platforms;android-36")
