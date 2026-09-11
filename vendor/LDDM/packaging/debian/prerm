@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        # Note: Do not aggressively kill running graphical sessions on package upgrade/removal
+        # but warn if LDDM is currently running
+        if pgrep -x lddm >/dev/null 2>&1 || pgrep -x linuxdroid-display-manager >/dev/null 2>&1; then
+            echo "Notice: LDDM is currently running. Existing sessions will continue until stopped." >&2
+        fi
+        ;;
+    failed-upgrade)
+        ;;
+    *)
+        echo "prerm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0
+

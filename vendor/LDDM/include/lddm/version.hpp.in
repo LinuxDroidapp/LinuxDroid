@@ -1,0 +1,67 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <string_view>
+
+namespace lddm {
+
+struct VersionInfo {
+    std::uint32_t major{0};
+    std::uint32_t minor{0};
+    std::uint32_t patch{0};
+    std::string_view suffix{};
+    std::string_view build_type{};
+    std::string_view git_commit{};
+    std::string_view full_string{};
+};
+
+inline constexpr std::uint32_t VERSION_MAJOR = @PROJECT_VERSION_MAJOR@;
+inline constexpr std::uint32_t VERSION_MINOR = @PROJECT_VERSION_MINOR@;
+inline constexpr std::uint32_t VERSION_PATCH = @PROJECT_VERSION_PATCH@;
+inline constexpr std::string_view VERSION_SUFFIX = "@LDDM_VERSION_SUFFIX@";
+inline constexpr std::string_view VERSION_BUILD_TYPE = "@CMAKE_BUILD_TYPE@";
+inline constexpr std::string_view VERSION_GIT_COMMIT = "@LDDM_GIT_COMMIT@";
+inline constexpr std::string_view VERSION_STRING = "@LDDM_VERSION_STRING@";
+
+class Version {
+public:
+    [[nodiscard]] static constexpr std::uint32_t major() noexcept {
+        return VERSION_MAJOR;
+    }
+
+    [[nodiscard]] static constexpr std::uint32_t minor() noexcept {
+        return VERSION_MINOR;
+    }
+
+    [[nodiscard]] static constexpr std::uint32_t patch() noexcept {
+        return VERSION_PATCH;
+    }
+
+    [[nodiscard]] static constexpr std::string_view suffix() noexcept {
+        return VERSION_SUFFIX;
+    }
+
+    [[nodiscard]] static constexpr std::string_view string() noexcept {
+        return VERSION_STRING;
+    }
+
+    [[nodiscard]] static constexpr std::string_view git_commit() noexcept {
+        return VERSION_GIT_COMMIT;
+    }
+
+    [[nodiscard]] static constexpr VersionInfo info() noexcept {
+        return VersionInfo{
+            .major = VERSION_MAJOR,
+            .minor = VERSION_MINOR,
+            .patch = VERSION_PATCH,
+            .suffix = VERSION_SUFFIX,
+            .build_type = VERSION_BUILD_TYPE,
+            .git_commit = VERSION_GIT_COMMIT,
+            .full_string = VERSION_STRING
+        };
+    }
+};
+
+} // namespace lddm
+

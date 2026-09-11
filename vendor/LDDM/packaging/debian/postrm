@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    purge)
+        # On purge, remove default configuration and directories if empty
+        rm -f /etc/lddm/lddm.conf 2>/dev/null || true
+        rmdir /etc/lddm 2>/dev/null || true
+        rm -f /etc/linuxdroid/lddm.conf 2>/dev/null || true
+        rmdir /etc/linuxdroid 2>/dev/null || true
+        rm -f /usr/bin/linuxdroid-display-manager 2>/dev/null || true
+        ;;
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        # On normal remove, preserve /etc/linuxdroid/lddm.conf and user configs
+        ;;
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0
+

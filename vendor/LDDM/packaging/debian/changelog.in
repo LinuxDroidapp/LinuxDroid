@@ -1,0 +1,9 @@
+linuxdroid-display-manager (@PROJECT_VERSION@-1) unstable; urgency=medium
+
+  * Production release of LinuxDroid Display Manager.
+  * Phase L0-L5: Foundation, Session Model, Process Supervisor,
+    Weston Manager, LDDE Integration, and Session Recovery.
+  * Phase L6: Production Debian packaging and filesystem layout.
+
+ -- LinuxDroid Team <dev@linuxdroid.org>  @DEB_DATE@
+

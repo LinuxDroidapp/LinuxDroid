@@ -1,0 +1,17 @@
+Package: linuxdroid-display-manager
+Version: @PROJECT_VERSION@
+Section: x11
+Priority: optional
+Architecture: @DEB_ARCH@
+Maintainer: LinuxDroid Team <dev@linuxdroid.org>
+Depends: libc6 (>= 2.34), libstdc++6 (>= 13)
+Recommends: weston (>= 10.0)
+Suggests: linuxdroid-desktop-environment | ldde
+Provides: display-manager
+Homepage: https://github.com/LinuxDroidapp/LDDM
+Description: LinuxDroid Display Manager (LDDM)
+ LDDM is the graphical session and display manager for LinuxDroid.
+ It manages the graphical lifecycle, coordinates the Weston Wayland
+ compositor, launches the LinuxDroid Desktop Environment (LDDE),
+ and provides autonomous session fault recovery.
+

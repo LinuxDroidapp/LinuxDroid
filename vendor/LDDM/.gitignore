@@ -1,0 +1,17 @@
+# Build directories
+build/
+build-*/
+cmake-build-*/
+bin/
+lib/
+
+# IDE & editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary install directories
+/tmp/lddm-install/
+

@@ -8,9 +8,58 @@
     "**/.cxx/**": true,
     "**/native/weston/build/**": true,
     "**/native/weston/src/**": true,
-    "**/native/weston/prefix/**": true
+    "**/native/weston/prefix/**": true,
+    "**/build*/**": true,
+    "**/build-debug/**": true,
+    "**/build-release/**": true,
+    "**/CMakeFiles/**": true,
+    "**/Testing/**": true,
+    "**/bin/**": true,
+    "**/lib/**": true,
+    "**/.cache/**": true,
+    "**/tmp/**": true,
+    "**/temp/**": true
+  },
+  "files.exclude": {
+    "**/.git": true,
+    "**/.svn": true,
+    "**/.hg": true,
+    "**/CVS": true,
+    "**/.DS_Store": true,
+    "**/Thumbs.db": true,
+    "**/build/**": true,
+    "**/build*/**": true,
+    "**/build-debug/**": true,
+    "**/build-release/**": true,
+    "**/CMakeFiles/**": true,
+    "**/Testing/**": true,
+    "**/.cache/**": true,
+    "**/tmp/**": true,
+    "**/temp/**": true
+  },
+  "search.exclude": {
+    "**/build/**": true,
+    "**/build*/**": true,
+    "**/build-debug/**": true,
+    "**/build-release/**": true,
+    "**/bin/**": true,
+    "**/lib/**": true,
+    "**/CMakeFiles/**": true,
+    "**/Testing/**": true,
+    "**/.cache/**": true,
+    "**/tmp/**": true,
+    "**/temp/**": true
+  },
+  "C_Cpp.files.exclude": {
+    "**/build/**": true,
+    "**/build*/**": true,
+    "**/build-debug/**": true,
+    "**/build-release/**": true
   },
   "git.autofetch": false,
   "git.autorefresh": true,
-  "git.showProgress": false
+  "git.showProgress": false,
+  "git.detectSubmodules": false,
+  "git.ignoreSubmodules": true
 }
+

@@ -1,0 +1,67 @@
+# LDDM - LinuxDroid Display Manager Configuration
+# Production Example Configuration
+
+[logging]
+# Log severity level: TRACE, DEBUG, INFO, WARN, ERROR, FATAL, OFF
+level = INFO
+# Optional path to log file (leave empty for stderr/console only)
+file_path = /var/log/lddm/lddm.log
+# Whether to output logs to console
+console = true
+# Enable ANSI color output
+colorize = true
+
+[server]
+# Path to control UNIX domain socket
+socket_path = /run/lddm/lddm.sock
+# Base runtime directory for transient sockets and locks
+runtime_dir = /run/lddm
+# Process ID file
+pid_file = /run/lddm/lddm.pid
+
+[session]
+# Default UNIX user to launch sessions under
+default_user = root
+# Session type: wayland, x11, or headless
+session_type = wayland
+# Display identifier
+display_number = 0
+# Wayland socket name
+wayland_display = wayland-0
+
+[weston]
+# Path to Weston compositor executable
+executable = /usr/bin/weston
+# Path to Weston configuration file
+config_path = /etc/xdg/weston/weston.ini
+# Wayland socket name Weston will serve
+socket_name = wayland-0
+# Compositor backend (headless-backend.so, wayland-backend.so, drm-backend.so)
+backend = headless-backend.so
+# Additional command line arguments passed to Weston
+additional_args = --idle-time=0
+
+[ldde]
+# Desktop environment startup command
+executable = /usr/bin/ldde-session
+# Target session desktop profile
+session_target = default
+# Whether to automatically launch desktop environment after compositor is ready
+autostart = true
+
+[process]
+# Timeout in milliseconds to wait for compositor and desktop initialization
+startup_timeout_ms = 10000
+# Timeout in milliseconds to wait for clean shutdown before SIGKILL
+stop_timeout_ms = 5000
+# Maximum restart attempts within restart window
+max_restart_count = 3
+# Window in seconds for restart rate limiting
+restart_window_seconds = 60
+
+[environment]
+# Additional environment variables to export to session processes
+XDG_SESSION_DESKTOP = LDDE
+QT_QPA_PLATFORM = wayland
+GDK_BACKEND = wayland
+
