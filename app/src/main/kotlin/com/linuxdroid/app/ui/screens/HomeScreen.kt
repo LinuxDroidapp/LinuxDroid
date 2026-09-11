@@ -7,9 +7,13 @@ import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.os.Build
 import android.os.StatFs
 import android.text.format.Formatter
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -88,6 +92,7 @@ fun HomeScreen(
 
     var showStorageDialog by remember { mutableStateOf(false) }
     var showDesktopInfoDialog by remember { mutableStateOf<Environment?>(null) }
+    var showSetupRequiredDialog by remember { mutableStateOf(false) }
 
     val neuColors = NeuTheme.colors
 
@@ -152,6 +157,13 @@ fun HomeScreen(
                             installConfig = config,
                             environmentName = name,
                         )
+                    },
+                    onInstallLocalArchive = { uri, config, name ->
+                        environmentViewModel.importLocalRootfsFromUri(
+                            archiveUri = uri,
+                            installConfig = config,
+                            environmentName = name,
+                        )
                     }
                 )
             } else {
@@ -166,6 +178,24 @@ fun HomeScreen(
                     guiStates[env.id.value] ?: environmentViewModel.getGuiState(env)
                 }
 
+                val localRootfsStates by environmentViewModel.localRootfsStates.collectAsState()
+                val activeLocalState = activeEnv.let { env ->
+                    localRootfsStates[env.id.value] ?: environmentViewModel.getLocalRootfsState(env)
+                }
+
+                if (activeLocalState.isSetupPending) {
+                    LocalRootfsSetupStatusCard(
+                        environment = activeEnv,
+                        localState = activeLocalState,
+                        onStartLinux = {
+                            navController.navigate(Screen.Terminal.route(activeEnv.id.value))
+                        },
+                        onRunSetup = {
+                            environmentViewModel.runInGuestSetup(activeEnv)
+                        }
+                    )
+                }
+
                 Text(
                     "Launch Mode",
                     style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold),
@@ -177,7 +207,9 @@ fun HomeScreen(
                     environment = activeEnv,
                     guiState = activeEnvGuiState,
                     onClick = {
-                        if (activeEnvGuiState == GuiState.INSTALLED) {
+                        if (activeLocalState.isSetupPending) {
+                            showSetupRequiredDialog = true
+                        } else if (activeEnvGuiState == GuiState.INSTALLED) {
                             navController.navigate(Screen.Desktop.route(activeEnv.id.value))
                         } else {
                             navController.navigate(Screen.GuiInstaller.route(activeEnv.id.value))
@@ -299,6 +331,93 @@ fun HomeScreen(
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                     ) {
                         Text("Close", fontSize = 13.sp)
+                    }
+                }
+            )
+        }
+
+        if (showSetupRequiredDialog && activeEnv != null) {
+            AlertDialog(
+                onDismissRequest = { showSetupRequiredDialog = false },
+                containerColor = neuColors.background,
+                icon = {
+                    Icon(
+                        Icons.Default.WarningAmber,
+                        contentDescription = null,
+                        tint = neuColors.warning,
+                        modifier = Modifier.size(36.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        "Rootfs Setup Required",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = neuColors.textPrimary,
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            "The imported rootfs must run in-guest setup to install Wayland runtime packages, XWayland, LDDM, and LDDE before Desktop GUI mode can start.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = neuColors.textSecondary,
+                        )
+                        Surface(
+                            color = neuColors.surfacePressed,
+                            shape = RoundedCornerShape(8.dp),
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, neuColors.borderHighlight.copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    "Manual setup command in Terminal:",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = neuColors.textPrimary,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "/root/linuxdroid/setup-rootfs.sh",
+                                    fontFamily = SfMono,
+                                    fontSize = 12.sp,
+                                    color = neuColors.success,
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    NeuButton(
+                        onClick = {
+                            showSetupRequiredDialog = false
+                            environmentViewModel.runInGuestSetup(activeEnv)
+                        },
+                        isAccent = true,
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text("Setup Rootfs", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        NeuButton(
+                            onClick = {
+                                showSetupRequiredDialog = false
+                                navController.navigate(Screen.Terminal.route(activeEnv.id.value))
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        ) {
+                            Text("Start Terminal", fontSize = 13.sp)
+                        }
+                        NeuButton(
+                            onClick = { showSetupRequiredDialog = false },
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        ) {
+                            Text("Cancel", fontSize = 13.sp)
+                        }
                     }
                 }
             )
@@ -1225,6 +1344,18 @@ private fun getSystemOverview(context: Context, environment: Environment?): Syst
  *     - Password & Confirm Password Input (with show/hide and validation)
  *  3. Explicit [Install] action button -> begins installation pipeline
  */
+private enum class RootfsInstallMode {
+    BASE_CATALOG,
+    LOCAL_ARCHIVE,
+}
+
+/**
+ * Clean Neumorphic Rootfs Installation Card shown when no rootfs exists.
+ *
+ * Supports two installation modes:
+ *  1. [ Install Base Rootfs ] — catalog download and bootstrap (Debian / Ubuntu)
+ *  2. [ Use Local Rootfs Archive ] — import local .tar.gz archive (e.g. ubuntu-base-26.04-base-arm64.tar.gz)
+ */
 @Composable
 private fun RootfsInstallationCard(
     environmentViewModel: EnvironmentViewModel,
@@ -1234,10 +1365,15 @@ private fun RootfsInstallationCard(
     logs: List<String>,
     onSettingsClick: () -> Unit,
     onInstallConfig: (InstallConfig, String) -> Unit,
+    onInstallLocalArchive: (Uri, InstallConfig, String) -> Unit,
 ) {
+    val context = LocalContext.current
     val neuColors = NeuTheme.colors
     val detectedArch = remember { Architecture.current() }
 
+    var installMode by remember { mutableStateOf(RootfsInstallMode.BASE_CATALOG) }
+
+    // Base rootfs catalog state
     var selectedDistro by remember { mutableStateOf(Distribution.DEBIAN) }
     val distroFetchState by environmentViewModel.distroFetchState.collectAsState()
 
@@ -1257,6 +1393,59 @@ private fun RootfsInstallationCard(
         )
     }
 
+    // Local rootfs archive state
+    var localArchiveUri by remember { mutableStateOf<Uri?>(null) }
+    var localArchiveName by remember { mutableStateOf<String?>(null) }
+    var localArchiveSize by remember { mutableStateOf<Long?>(null) }
+    var localArchiveDistro by remember { mutableStateOf(Distribution.UBUNTU) }
+    var isArchiveValid by remember { mutableStateOf(false) }
+    var archiveValidationNote by remember { mutableStateOf<String?>(null) }
+
+    val archivePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            localArchiveUri = uri
+            val cursor = context.contentResolver.query(uri, null, null, null, null)
+            val name = cursor?.use {
+                if (it.moveToFirst()) {
+                    val idx = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0) it.getString(idx) else null
+                } else null
+            } ?: "archive.tar.gz"
+            val size = cursor?.use {
+                if (it.moveToFirst()) {
+                    val idx = it.getColumnIndex(OpenableColumns.SIZE)
+                    if (idx >= 0) it.getLong(idx) else null
+                } else null
+            }
+            localArchiveName = name
+            localArchiveSize = size
+
+            var validGzipHeader = false
+            try {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val b1 = stream.read()
+                    val b2 = stream.read()
+                    validGzipHeader = (b1 == 0x1f && b2 == 0x8b)
+                }
+            } catch (_: Exception) {}
+
+            if (name.endsWith(".tar.gz", ignoreCase = true) || name.endsWith(".tgz", ignoreCase = true) || validGzipHeader) {
+                isArchiveValid = true
+                archiveValidationNote = if (validGzipHeader) "Verified ARM64 GZIP archive (.tar.gz)" else "GZIP tarball detected (.tar.gz)"
+                if (name.contains("debian", ignoreCase = true)) {
+                    localArchiveDistro = Distribution.DEBIAN
+                } else if (name.contains("ubuntu", ignoreCase = true)) {
+                    localArchiveDistro = Distribution.UBUNTU
+                }
+            } else {
+                isArchiveValid = false
+                archiveValidationNote = "Invalid archive format. Please select a .tar.gz rootfs file."
+            }
+        }
+    }
+
     var username by remember { mutableStateOf("user") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
@@ -1267,7 +1456,11 @@ private fun RootfsInstallationCard(
     val passwordResult = remember(password, confirmPassword) { PasswordValidator.validate(password, confirmPassword) }
 
     val isFormValid = usernameResult == null && passwordResult == null && username.isNotBlank() && password.isNotBlank()
-    val envName = "${selectedDistro.displayName} ($selectedRelease)"
+    val envName = if (installMode == RootfsInstallMode.BASE_CATALOG) {
+        "${selectedDistro.displayName} ($selectedRelease)"
+    } else {
+        localArchiveName?.removeSuffix(".tar.gz")?.removeSuffix(".tgz") ?: "${localArchiveDistro.displayName} (Local)"
+    }
 
     NeuCard(
         modifier = Modifier.fillMaxWidth(),
@@ -1327,178 +1520,394 @@ private fun RootfsInstallationCard(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 if (installingEnv == null) {
-                    // ── Step 1: Distribution Selection ─────────────────────
+                    // ── Mode Switcher: Install Base Rootfs vs Use Local Archive ──
                     Text(
-                        "1. Choose Distribution",
+                        "Rootfs Installation",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         color = neuColors.textPrimary,
                     )
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        listOf(
-                            Triple(Distribution.DEBIAN, "Debian", "Stable & Lightweight"),
-                            Triple(Distribution.UBUNTU, "Ubuntu", "Modern LTS & Packages"),
-                        ).forEach { (distro, title, desc) ->
-                            val isSelected = selectedDistro == distro
-                            Surface(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable {
-                                        if (selectedDistro != distro) {
-                                            selectedDistro = distro
-                                            val releases = DistributionCatalog.getAvailableReleases(distro)
-                                            selectedRelease = releases.firstOrNull { it.isDefault }?.releaseCode
-                                                ?: releases.firstOrNull()?.releaseCode
-                                                ?: "bookworm"
-                                        }
-                                    },
-                                shape = RoundedCornerShape(14.dp),
-                                color = if (isSelected) neuColors.primaryAccent.copy(alpha = 0.10f) else neuColors.surfacePressed,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    width = if (isSelected) 1.5.dp else 0.5.dp,
-                                    color = if (isSelected) neuColors.primaryAccent else neuColors.borderHighlight.copy(alpha = 0.3f),
-                                ),
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                ) {
-                                    DistroIcon(distribution = distro, size = 36.dp)
-                                    Text(
-                                        text = title,
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                        color = if (isSelected) neuColors.primaryAccent else neuColors.textPrimary,
-                                    )
-                                    Text(
-                                        text = desc,
-                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
-                                        color = neuColors.textSecondary,
-                                        maxLines = 1,
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Background release pre-fetch status indicator
-                    Surface(
-                        color = neuColors.surfacePressed,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { installMode = RootfsInstallMode.BASE_CATALOG },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (installMode == RootfsInstallMode.BASE_CATALOG) neuColors.primaryAccent.copy(alpha = 0.12f) else neuColors.surfacePressed,
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = if (installMode == RootfsInstallMode.BASE_CATALOG) 1.5.dp else 0.5.dp,
+                                color = if (installMode == RootfsInstallMode.BASE_CATALOG) neuColors.primaryAccent else neuColors.borderHighlight.copy(alpha = 0.3f),
+                            ),
                         ) {
-                            when (val state = distroFetchState) {
-                                is DistributionFetchState.Fetching -> {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(12.dp),
-                                        strokeWidth = 1.5.dp,
-                                        color = neuColors.primaryAccent,
-                                    )
-                                    Text(
-                                        text = state.message,
-                                        fontSize = 11.sp,
-                                        fontFamily = SfMono,
-                                        color = neuColors.textSecondary,
-                                        maxLines = 1,
-                                    )
-                                }
-                                is DistributionFetchState.Ready -> {
-                                    Icon(
-                                        Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp),
-                                        tint = neuColors.success,
-                                    )
-                                    Text(
-                                        text = "Release data verified for ${state.distro.displayName}",
-                                        fontSize = 11.sp,
-                                        fontFamily = SfMono,
-                                        color = neuColors.success,
-                                        maxLines = 1,
-                                    )
-                                }
-                                is DistributionFetchState.Failed -> {
-                                    Icon(
-                                        Icons.Default.Info,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp),
-                                        tint = neuColors.warning,
-                                    )
-                                    Text(
-                                        text = "Using cached catalog definition",
-                                        fontSize = 11.sp,
-                                        fontFamily = SfMono,
-                                        color = neuColors.textSecondary,
-                                        maxLines = 1,
-                                    )
-                                }
-                                else -> {
-                                    Text(
-                                        text = "Ready to configure",
-                                        fontSize = 11.sp,
-                                        fontFamily = SfMono,
-                                        color = neuColors.textSecondary,
-                                    )
-                                }
+                            Row(
+                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                Icon(
+                                    Icons.Default.Download,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = if (installMode == RootfsInstallMode.BASE_CATALOG) neuColors.primaryAccent else neuColors.textSecondary
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "Install Base Rootfs",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (installMode == RootfsInstallMode.BASE_CATALOG) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (installMode == RootfsInstallMode.BASE_CATALOG) neuColors.primaryAccent else neuColors.textPrimary,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { installMode = RootfsInstallMode.LOCAL_ARCHIVE },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (installMode == RootfsInstallMode.LOCAL_ARCHIVE) neuColors.primaryAccent.copy(alpha = 0.12f) else neuColors.surfacePressed,
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = if (installMode == RootfsInstallMode.LOCAL_ARCHIVE) 1.5.dp else 0.5.dp,
+                                color = if (installMode == RootfsInstallMode.LOCAL_ARCHIVE) neuColors.primaryAccent else neuColors.borderHighlight.copy(alpha = 0.3f),
+                            ),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                Icon(
+                                    Icons.Default.Folder,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = if (installMode == RootfsInstallMode.LOCAL_ARCHIVE) neuColors.primaryAccent else neuColors.textSecondary
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "Use Local Archive",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (installMode == RootfsInstallMode.LOCAL_ARCHIVE) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (installMode == RootfsInstallMode.LOCAL_ARCHIVE) neuColors.primaryAccent else neuColors.textPrimary,
+                                    maxLines = 1,
+                                )
                             }
                         }
                     }
 
-                    // ── Step 2: Installation Configuration ──────────────────
-                    Text(
-                        "2. Installation Configuration",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = neuColors.textPrimary,
-                    )
-
-                    // Version Selection
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (installMode == RootfsInstallMode.BASE_CATALOG) {
+                        // ── Step 1: Distribution Selection ─────────────────────
                         Text(
-                            "Select Version",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = neuColors.textSecondary,
+                            "1. Choose Distribution",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = neuColors.textPrimary,
                         )
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            availableReleases.forEach { release ->
-                                val isSelected = selectedRelease == release.releaseCode
+                            listOf(
+                                Triple(Distribution.DEBIAN, "Debian", "Stable & Lightweight"),
+                                Triple(Distribution.UBUNTU, "Ubuntu", "Modern LTS & Packages"),
+                            ).forEach { (distro, title, desc) ->
+                                val isSelected = selectedDistro == distro
                                 Surface(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .clickable { selectedRelease = release.releaseCode },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (isSelected) neuColors.surfacePressed else neuColors.background,
+                                        .clickable {
+                                            if (selectedDistro != distro) {
+                                                selectedDistro = distro
+                                                val releases = DistributionCatalog.getAvailableReleases(distro)
+                                                selectedRelease = releases.firstOrNull { it.isDefault }?.releaseCode
+                                                    ?: releases.firstOrNull()?.releaseCode
+                                                    ?: "bookworm"
+                                            }
+                                        },
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (isSelected) neuColors.primaryAccent.copy(alpha = 0.10f) else neuColors.surfacePressed,
                                     border = androidx.compose.foundation.BorderStroke(
                                         width = if (isSelected) 1.5.dp else 0.5.dp,
                                         color = if (isSelected) neuColors.primaryAccent else neuColors.borderHighlight.copy(alpha = 0.3f),
                                     ),
                                 ) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        DistroIcon(distribution = distro, size = 36.dp)
+                                        Text(
+                                            text = title,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = if (isSelected) neuColors.primaryAccent else neuColors.textPrimary,
+                                        )
+                                        Text(
+                                            text = desc,
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
+                                            color = neuColors.textSecondary,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Background release pre-fetch status indicator
+                        Surface(
+                            color = neuColors.surfacePressed,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                when (val state = distroFetchState) {
+                                    is DistributionFetchState.Fetching -> {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(12.dp),
+                                            strokeWidth = 1.5.dp,
+                                            color = neuColors.primaryAccent,
+                                        )
+                                        Text(
+                                            text = state.message,
+                                            fontSize = 11.sp,
+                                            fontFamily = SfMono,
+                                            color = neuColors.textSecondary,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                    is DistributionFetchState.Ready -> {
+                                        Icon(
+                                            Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                            tint = neuColors.success,
+                                        )
+                                        Text(
+                                            text = "Release data verified for ${state.distro.displayName}",
+                                            fontSize = 11.sp,
+                                            fontFamily = SfMono,
+                                            color = neuColors.success,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                    is DistributionFetchState.Failed -> {
+                                        Icon(
+                                            Icons.Default.Info,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                            tint = neuColors.warning,
+                                        )
+                                        Text(
+                                            text = "Using cached catalog definition",
+                                            fontSize = 11.sp,
+                                            fontFamily = SfMono,
+                                            color = neuColors.textSecondary,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                    else -> {
+                                        Text(
+                                            text = "Ready to configure",
+                                            fontSize = 11.sp,
+                                            fontFamily = SfMono,
+                                            color = neuColors.textSecondary,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── Step 2: Installation Configuration ──────────────────
+                        Text(
+                            "2. Installation Configuration",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = neuColors.textPrimary,
+                        )
+
+                        // Version Selection
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                "Select Version",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = neuColors.textSecondary,
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                availableReleases.forEach { release ->
+                                    val isSelected = selectedRelease == release.releaseCode
+                                    Surface(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { selectedRelease = release.releaseCode },
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (isSelected) neuColors.surfacePressed else neuColors.background,
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            width = if (isSelected) 1.5.dp else 0.5.dp,
+                                            color = if (isSelected) neuColors.primaryAccent else neuColors.borderHighlight.copy(alpha = 0.3f),
+                                        ),
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        ) {
+                                            RadioButton(
+                                                selected = isSelected,
+                                                onClick = { selectedRelease = release.releaseCode },
+                                                colors = RadioButtonDefaults.colors(selectedColor = neuColors.primaryAccent),
+                                                modifier = Modifier.size(20.dp),
+                                            )
+                                            Text(
+                                                text = release.displayName,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = neuColors.textPrimary,
+                                                maxLines = 1,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // ── Step 1: Select Archive File ─────────────────────
+                        Text(
+                            "1. Select Local Rootfs Archive (.tar.gz)",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = neuColors.textPrimary,
+                        )
+
+                        Text(
+                            "Select a local ARM64 rootfs archive from your device (e.g. ubuntu-base-26.04-base-arm64.tar.gz).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = neuColors.textSecondary,
+                        )
+
+                        NeuButton(
+                            onClick = { archivePickerLauncher.launch("*/*") },
+                            modifier = Modifier.fillMaxWidth(),
+                            isAccent = localArchiveUri == null,
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(vertical = 12.dp),
+                        ) {
+                            Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                if (localArchiveUri == null) "Select .tar.gz File" else "Change Archive File",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+
+                        if (localArchiveUri != null) {
+                            Surface(
+                                color = neuColors.surfacePressed,
+                                shape = RoundedCornerShape(10.dp),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    width = 1.dp,
+                                    color = if (isArchiveValid) neuColors.success.copy(alpha = 0.5f) else neuColors.error.copy(alpha = 0.5f),
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            localArchiveName ?: "archive.tar.gz",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = neuColors.textPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        localArchiveSize?.let { sz ->
+                                            Text(
+                                                Formatter.formatFileSize(context, sz),
+                                                fontFamily = SfMono,
+                                                fontSize = 11.sp,
+                                                color = neuColors.textSecondary,
+                                            )
+                                        }
+                                    }
+
+                                    Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     ) {
-                                        RadioButton(
-                                            selected = isSelected,
-                                            onClick = { selectedRelease = release.releaseCode },
-                                            colors = RadioButtonDefaults.colors(selectedColor = neuColors.primaryAccent),
-                                            modifier = Modifier.size(20.dp),
+                                        Icon(
+                                            if (isArchiveValid) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
+                                            contentDescription = null,
+                                            tint = if (isArchiveValid) neuColors.success else neuColors.error,
+                                            modifier = Modifier.size(16.dp),
                                         )
                                         Text(
-                                            text = release.displayName,
-                                            fontSize = 12.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            color = neuColors.textPrimary,
+                                            archiveValidationNote ?: "",
+                                            fontSize = 11.sp,
+                                            color = if (isArchiveValid) neuColors.success else neuColors.error,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── Step 2: Distribution Profile ─────────────────────
+                        Text(
+                            "2. Distribution Profile",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = neuColors.textPrimary,
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            listOf(
+                                Triple(Distribution.UBUNTU, "Ubuntu", "Ubuntu Base Archive"),
+                                Triple(Distribution.DEBIAN, "Debian", "Debian Base Archive"),
+                            ).forEach { (distro, title, desc) ->
+                                val isSelected = localArchiveDistro == distro
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { localArchiveDistro = distro },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isSelected) neuColors.primaryAccent.copy(alpha = 0.10f) else neuColors.surfacePressed,
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        width = if (isSelected) 1.5.dp else 0.5.dp,
+                                        color = if (isSelected) neuColors.primaryAccent else neuColors.borderHighlight.copy(alpha = 0.3f),
+                                    ),
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        DistroIcon(distribution = distro, size = 32.dp)
+                                        Text(
+                                            text = title,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = if (isSelected) neuColors.primaryAccent else neuColors.textPrimary,
+                                        )
+                                        Text(
+                                            text = desc,
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
+                                            color = neuColors.textSecondary,
                                             maxLines = 1,
                                         )
                                     }
@@ -1628,19 +2037,34 @@ private fun RootfsInstallationCard(
                         modifier = Modifier.fillMaxWidth(),
                     )
 
-                    // ── Explicit [Install] Action Button ───────────────────
+                    // ── Explicit Action Button (Install or Import) ───────────────────
                     NeuButton(
                         onClick = {
-                            val config = InstallConfig(
-                                distro = selectedDistro,
-                                release = selectedRelease,
-                                username = username.trim(),
-                                password = password,
-                                architecture = detectedArch,
-                            )
-                            onInstallConfig(config, envName)
+                            if (installMode == RootfsInstallMode.BASE_CATALOG) {
+                                val config = InstallConfig(
+                                    distro = selectedDistro,
+                                    release = selectedRelease,
+                                    username = username.trim(),
+                                    password = password,
+                                    architecture = detectedArch,
+                                )
+                                onInstallConfig(config, envName)
+                            } else {
+                                val config = InstallConfig(
+                                    distro = localArchiveDistro,
+                                    release = if (localArchiveDistro == Distribution.UBUNTU) "noble" else "bookworm",
+                                    username = username.trim(),
+                                    password = password,
+                                    architecture = detectedArch,
+                                )
+                                val customName = localArchiveName?.removeSuffix(".tar.gz")?.removeSuffix(".tgz")
+                                    ?: "${localArchiveDistro.displayName} (Local)"
+                                localArchiveUri?.let { uri ->
+                                    onInstallLocalArchive(uri, config, customName)
+                                }
+                            }
                         },
-                        enabled = isFormValid,
+                        enabled = if (installMode == RootfsInstallMode.BASE_CATALOG) isFormValid else (isFormValid && isArchiveValid && localArchiveUri != null),
                         isAccent = true,
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth(),
@@ -1649,7 +2073,7 @@ private fun RootfsInstallationCard(
                         Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Install LinuxDroid",
+                            if (installMode == RootfsInstallMode.BASE_CATALOG) "Install LinuxDroid" else "Import Local Rootfs",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                         )
@@ -1907,3 +2331,225 @@ private fun ActiveEnvironmentHeroCard(
         }
     }
 }
+
+/**
+ * Prominent dashboard card rendered when a local rootfs archive has been imported
+ * and requires in-guest setup (/root/linuxdroid/setup-rootfs.sh).
+ *
+ * Offers immediate CLI terminal launch and in-guest setup triggering.
+ */
+@Composable
+private fun LocalRootfsSetupStatusCard(
+    environment: Environment,
+    localState: LocalRootfsState,
+    onStartLinux: () -> Unit,
+    onRunSetup: () -> Unit,
+) {
+    val neuColors = NeuTheme.colors
+
+    NeuCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // Header: Icon + Title + Source badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Folder,
+                        contentDescription = null,
+                        tint = neuColors.primaryAccent,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Text(
+                        "Local Rootfs Archive",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = neuColors.textPrimary,
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = neuColors.primaryAccent.copy(alpha = 0.15f),
+                ) {
+                    Text(
+                        "Source: Local Archive",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = neuColors.primaryAccent,
+                    )
+                }
+            }
+
+            HorizontalDivider(
+                color = neuColors.borderHighlight.copy(alpha = 0.25f),
+                thickness = 0.5.dp,
+            )
+
+            // Status Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Status", style = MaterialTheme.typography.bodySmall, color = neuColors.textSecondary)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = neuColors.success,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        "Rootfs imported",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                        color = neuColors.success,
+                    )
+                }
+            }
+
+            // Setup State Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Setup", style = MaterialTheme.typography.bodySmall, color = neuColors.textSecondary)
+                when (localState) {
+                    LocalRootfsState.SETUP_RUNNING -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = neuColors.primaryAccent,
+                            )
+                            Text(
+                                "Running in-guest...",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = neuColors.primaryAccent,
+                            )
+                        }
+                    }
+                    LocalRootfsState.SETUP_FAILED -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.ErrorOutline,
+                                contentDescription = null,
+                                tint = neuColors.error,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                "Failed (CLI usable)",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = neuColors.error,
+                            )
+                        }
+                    }
+                    else -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Info,
+                                contentDescription = null,
+                                tint = neuColors.warning,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                "Required (GUI pending)",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = neuColors.warning,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // CLI-first Instruction Box
+            Surface(
+                color = Color(0xFF1E1E1E),
+                shape = RoundedCornerShape(8.dp),
+                border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFF333333)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(modifier = Modifier.padding(10.dp)) {
+                    Text(
+                        "After entering Linux:",
+                        fontSize = 11.sp,
+                        fontFamily = SfMono,
+                        color = Color(0xFFAAAAAA),
+                    )
+                    Text(
+                        "Run: /root/linuxdroid/setup-rootfs.sh",
+                        fontSize = 12.sp,
+                        fontFamily = SfMono,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF81C784),
+                    )
+                }
+            }
+
+            // Action Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                NeuButton(
+                    onClick = onStartLinux,
+                    modifier = Modifier.weight(1f),
+                    isAccent = false,
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(vertical = 10.dp),
+                ) {
+                    Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Start Linux", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+
+                NeuButton(
+                    onClick = onRunSetup,
+                    enabled = localState != LocalRootfsState.SETUP_RUNNING,
+                    modifier = Modifier.weight(1f),
+                    isAccent = true,
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(vertical = 10.dp),
+                ) {
+                    Icon(
+                        if (localState == LocalRootfsState.SETUP_FAILED) Icons.Default.Refresh else Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (localState == LocalRootfsState.SETUP_FAILED) "Retry Setup" else "Setup Rootfs",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        }
+    }
+}
+

@@ -200,6 +200,13 @@ if [[ -f "${BOOTSTRAP_SCRIPT}" ]]; then
     echo ">>> Staged install_rootfs.sh into assets/scripts/"
 fi
 
+SETUP_ROOTFS_SCRIPT="${ROOT_DIR}/scripts/setup-rootfs.sh"
+if [[ -f "${SETUP_ROOTFS_SCRIPT}" ]]; then
+    cp -f "${SETUP_ROOTFS_SCRIPT}" "${ASSETS_SCRIPTS_DIR}/setup-rootfs.sh"
+    chmod +x "${ASSETS_SCRIPTS_DIR}/setup-rootfs.sh"
+    echo ">>> Staged setup-rootfs.sh into assets/scripts/"
+fi
+
 sha256_file() {
     sha256sum "$1" | awk "{print \$1}"
 }

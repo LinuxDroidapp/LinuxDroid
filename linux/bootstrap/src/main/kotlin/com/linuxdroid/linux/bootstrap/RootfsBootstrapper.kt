@@ -87,6 +87,46 @@ class RootfsBootstrapper(
         )
     }
 
+    val localRootfsImporter: LocalRootfsImporter by lazy {
+        LocalRootfsImporter(
+            context = context,
+            storage = storage,
+            runtimeBackend = runtimeBackend,
+        )
+    }
+
+    suspend fun importLocalRootfs(
+        archiveFile: File,
+        environment: Environment,
+        installConfig: InstallConfig? = null,
+        onProgress: suspend (Float, String) -> Unit = { _, _ -> },
+        onLog: suspend (String) -> Unit = { _ -> },
+    ): LocalImportResult {
+        return localRootfsImporter.importRootfs(
+            archiveFile = archiveFile,
+            environment = environment,
+            installConfig = installConfig,
+            onProgress = onProgress,
+            onLog = onLog,
+        )
+    }
+
+    suspend fun executeInGuestSetup(
+        environment: Environment,
+        onProgress: suspend (Float, String) -> Unit = { _, _ -> },
+        onLog: suspend (String) -> Unit = { _ -> },
+    ): InGuestSetupResult {
+        return localRootfsImporter.executeInGuestSetup(
+            environment = environment,
+            onProgress = onProgress,
+            onLog = onLog,
+        )
+    }
+
+    fun checkLocalRootfsState(environment: Environment): LocalRootfsState {
+        return localRootfsImporter.checkSetupState(environment)
+    }
+
     private suspend fun downloadFile(
         url: String,
         dest: File,

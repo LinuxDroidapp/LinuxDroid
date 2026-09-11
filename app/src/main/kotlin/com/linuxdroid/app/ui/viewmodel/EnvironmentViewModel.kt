@@ -1,6 +1,8 @@
 package com.linuxdroid.app.ui.viewmodel
 
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.linuxdroid.app.service.LinuxSessionService
@@ -70,6 +72,9 @@ class EnvironmentViewModel @Inject constructor(
 
     private val _guiInstallLogs = MutableStateFlow<Map<String, List<String>>>(emptyMap())
     val guiInstallLogs: StateFlow<Map<String, List<String>>> = _guiInstallLogs.asStateFlow()
+
+    private val _localRootfsStates = MutableStateFlow<Map<String, LocalRootfsState>>(emptyMap())
+    val localRootfsStates: StateFlow<Map<String, LocalRootfsState>> = _localRootfsStates.asStateFlow()
 
     private val _errorMessage = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val errorMessage: SharedFlow<String> = _errorMessage.asSharedFlow()
@@ -566,6 +571,256 @@ class EnvironmentViewModel @Inject constructor(
             } catch (e: Exception) {
                 log.error("Failed to update environment configuration", e)
                 _errorMessage.tryEmit("Failed to save settings: ${e.message}")
+            }
+        }
+    }
+
+    fun getLocalRootfsState(environment: Environment): LocalRootfsState {
+        val cached = _localRootfsStates.value[environment.id.value]
+        if (cached != null) return cached
+        val diskState = bootstrapper.checkLocalRootfsState(environment)
+        _localRootfsStates.update { it + (environment.id.value to diskState) }
+        return diskState
+    }
+
+    fun importLocalRootfs(
+        archiveFile: File,
+        installConfig: InstallConfig? = null,
+        environmentName: String? = null,
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val defaultName = "Ubuntu Base (arm64)"
+            val name = environmentName?.trim()?.ifEmpty { defaultName } ?: defaultName
+            val id = EnvironmentId.generate()
+            val envId = id.value
+            log.info("Importing local rootfs from ${archiveFile.name} for environment '$name' ($id)")
+
+            try {
+                storage.initializeEnvironmentDirs(id)
+
+                val metadata = EnvironmentMetadata(
+                    id = id,
+                    name = name,
+                    distribution = installConfig?.distro ?: Distribution.UBUNTU,
+                    architecture = installConfig?.architecture ?: Architecture.ARM64,
+                )
+
+                val environment = Environment(
+                    metadata = metadata,
+                    configuration = EnvironmentConfiguration(linuxUser = installConfig?.username ?: "user"),
+                    state = EnvironmentState.INSTALLING,
+                    rootfsPath = storage.rootfsDir(id).absolutePath,
+                    metadataPath = storage.metadataDir(id).absolutePath,
+                )
+
+                dao.insert(EnvironmentMapper.toEntity(environment))
+
+                _installerLogs.update { it + (envId to listOf(">>> Starting local rootfs import from ${archiveFile.name}...")) }
+
+                bootstrapper.importLocalRootfs(
+                    archiveFile = archiveFile,
+                    environment = environment,
+                    installConfig = installConfig,
+                    onProgress = { progress, status ->
+                        _installProgress.update { it + (envId to progress) }
+                        _installStatusText.update { it + (envId to status) }
+                    },
+                    onLog = { line ->
+                        _installerLogs.update { map ->
+                            val current = map[envId] ?: emptyList()
+                            map + (envId to (current + line).takeLast(500))
+                        }
+                    }
+                )
+
+                // Once extracted and validated, mark READY so CLI is available
+                dao.updateState(
+                    id = envId,
+                    state = EnvironmentState.READY.name,
+                    timestamp = System.currentTimeMillis(),
+                    failureMessage = null,
+                )
+                _localRootfsStates.update { it + (envId to LocalRootfsState.ROOTFS_IMPORTED) }
+                _installProgress.update { it - envId }
+                _installStatusText.update { it - envId }
+                log.info("Local rootfs imported successfully for $envId. CLI is available, setup is pending.")
+            } catch (e: Exception) {
+                log.error("Failed to import local rootfs for $envId", e)
+                dao.updateState(
+                    id = envId,
+                    state = EnvironmentState.FAILED.name,
+                    timestamp = System.currentTimeMillis(),
+                    failureMessage = e.message ?: "Local rootfs import failed",
+                )
+                _localRootfsStates.update { it + (envId to LocalRootfsState.SETUP_FAILED) }
+                _installProgress.update { it - envId }
+                _installStatusText.update { it - envId }
+                _errorMessage.tryEmit("Import failed: ${e.message}")
+            }
+        }
+    }
+
+    fun validateArchive(archiveFile: File): Result<Unit> {
+        return runCatching {
+            bootstrapper.localRootfsImporter.validateArchive(archiveFile)
+        }
+    }
+
+    fun importLocalRootfsFromUri(
+        archiveUri: Uri,
+        installConfig: InstallConfig? = null,
+        environmentName: String? = null,
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val defaultName = "Ubuntu Base (arm64)"
+            val name = environmentName?.trim()?.ifEmpty { defaultName } ?: defaultName
+            val id = EnvironmentId.generate()
+            val envId = id.value
+            log.info("Importing local rootfs from URI $archiveUri for environment '$name' ($id)")
+
+            try {
+                storage.initializeEnvironmentDirs(id)
+
+                val metadata = EnvironmentMetadata(
+                    id = id,
+                    name = name,
+                    distribution = installConfig?.distro ?: Distribution.UBUNTU,
+                    architecture = installConfig?.architecture ?: Architecture.ARM64,
+                )
+
+                val environment = Environment(
+                    metadata = metadata,
+                    configuration = EnvironmentConfiguration(linuxUser = installConfig?.username ?: "user"),
+                    state = EnvironmentState.INSTALLING,
+                    rootfsPath = storage.rootfsDir(id).absolutePath,
+                    metadataPath = storage.metadataDir(id).absolutePath,
+                )
+
+                dao.insert(EnvironmentMapper.toEntity(environment))
+
+                _installerLogs.update { it + (envId to listOf(">>> Reading local rootfs archive from storage...")) }
+                _installStatusText.update { it + (envId to "Staging archive...") }
+                _installProgress.update { it + (envId to 0.05f) }
+
+                // Resolve filename
+                val cursor = context.contentResolver.query(archiveUri, null, null, null, null)
+                val displayName = cursor?.use {
+                    if (it.moveToFirst()) {
+                        val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (nameIndex >= 0) it.getString(nameIndex) else null
+                    } else null
+                } ?: "local-rootfs.tar.gz"
+
+                val tempArchive = File(context.cacheDir, "imported_${System.currentTimeMillis()}_$displayName")
+                _installerLogs.update { map ->
+                    val cur = map[envId] ?: emptyList()
+                    map + (envId to (cur + "Copying selected archive ($displayName) into cache..."))
+                }
+
+                context.contentResolver.openInputStream(archiveUri)?.use { input ->
+                    tempArchive.outputStream().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var bytesRead: Int
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                        }
+                    }
+                } ?: throw FilesystemError(tempArchive.path, "Cannot open stream for URI $archiveUri")
+
+                _installerLogs.update { map ->
+                    val cur = map[envId] ?: emptyList()
+                    map + (envId to (cur + "Archive cached successfully (${tempArchive.length() / (1024 * 1024)} MB). Validating archive..."))
+                }
+
+                bootstrapper.importLocalRootfs(
+                    archiveFile = tempArchive,
+                    environment = environment,
+                    installConfig = installConfig,
+                    onProgress = { progress, status ->
+                        _installProgress.update { it + (envId to progress) }
+                        _installStatusText.update { it + (envId to status) }
+                    },
+                    onLog = { line ->
+                        _installerLogs.update { map ->
+                            val current = map[envId] ?: emptyList()
+                            map + (envId to (current + line).takeLast(500))
+                        }
+                    }
+                )
+
+                // Clean up cached archive
+                try {
+                    tempArchive.delete()
+                } catch (e: Exception) {
+                    log.warn("Failed to delete temp archive ${tempArchive.path}: ${e.message}")
+                }
+
+                // Once extracted and validated, mark READY so CLI is available
+                dao.updateState(
+                    id = envId,
+                    state = EnvironmentState.READY.name,
+                    timestamp = System.currentTimeMillis(),
+                    failureMessage = null,
+                )
+                _localRootfsStates.update { it + (envId to LocalRootfsState.ROOTFS_IMPORTED) }
+                _installProgress.update { it - envId }
+                _installStatusText.update { it - envId }
+                log.info("Local rootfs imported successfully for $envId. CLI is available, setup is pending.")
+            } catch (e: Exception) {
+                log.error("Failed to import local rootfs from URI for $envId", e)
+                dao.updateState(
+                    id = envId,
+                    state = EnvironmentState.FAILED.name,
+                    timestamp = System.currentTimeMillis(),
+                    failureMessage = e.message ?: "Local rootfs import failed",
+                )
+                _localRootfsStates.update { it + (envId to LocalRootfsState.SETUP_FAILED) }
+                _installProgress.update { it - envId }
+                _installStatusText.update { it - envId }
+                _errorMessage.tryEmit("Import failed: ${e.message}")
+            }
+        }
+    }
+
+    fun runInGuestSetup(environment: Environment) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val envId = environment.id.value
+            try {
+                log.info("Starting in-guest setup for $envId")
+                _localRootfsStates.update { it + (envId to LocalRootfsState.SETUP_RUNNING) }
+                _installerLogs.update { it + (envId to listOf(">>> Starting in-guest setup (/root/linuxdroid/setup-rootfs.sh)...")) }
+
+                val result = bootstrapper.executeInGuestSetup(
+                    environment = environment,
+                    onProgress = { progress, status ->
+                        _installProgress.update { it + (envId to progress) }
+                        _installStatusText.update { it + (envId to status) }
+                    },
+                    onLog = { line ->
+                        _installerLogs.update { map ->
+                            val current = map[envId] ?: emptyList()
+                            map + (envId to (current + line).takeLast(500))
+                        }
+                    }
+                )
+
+                if (result.success) {
+                    _localRootfsStates.update { it + (envId to LocalRootfsState.READY) }
+                    _guiStates.update { it + (envId to GuiState.INSTALLED) }
+                    log.info("In-guest setup succeeded for $envId. Both CLI and GUI ready.")
+                    _errorMessage.tryEmit("Rootfs setup complete! Both CLI and GUI are ready.")
+                } else {
+                    _localRootfsStates.update { it + (envId to LocalRootfsState.SETUP_FAILED) }
+                    _errorMessage.tryEmit("Setup failed: ${result.detail}")
+                }
+                _installProgress.update { it - envId }
+                _installStatusText.update { it - envId }
+            } catch (e: Exception) {
+                log.error("In-guest setup failed for $envId", e)
+                _localRootfsStates.update { it + (envId to LocalRootfsState.SETUP_FAILED) }
+                _installProgress.update { it - envId }
+                _installStatusText.update { it - envId }
+                _errorMessage.tryEmit("Setup failed: ${e.message}")
             }
         }
     }
