@@ -47,10 +47,17 @@ void DockLayout::update(const display::DisplayPolicy& policy,
     }
 
     if (item_count > 0) {
-        total_content_width_ = current_x - item_spacing_ + padding_h_;
-    } else {
-        total_content_width_ = padding_h_ + item_size_ + padding_h_;
+        current_x = current_x - item_spacing_ + separator_w_;
     }
+
+    // 3. Keyboard button and Power button at trailing edge
+    keyboard_button_rect_ = core::Rect{current_x, item_y, item_size_, item_size_};
+    current_x += item_size_ + item_spacing_;
+
+    power_button_rect_ = core::Rect{current_x, item_y, item_size_, item_size_};
+    current_x += item_size_ + padding_h_;
+
+    total_content_width_ = current_x;
 
     int32_t available_w = dock_geometry_.width;
     if (total_content_width_ > available_w) {
@@ -64,6 +71,8 @@ void DockLayout::update(const display::DisplayPolicy& policy,
             for (auto& r : item_rects_) {
                 r.x += center_offset;
             }
+            keyboard_button_rect_.x += center_offset;
+            power_button_rect_.x += center_offset;
         }
     }
 
@@ -78,8 +87,7 @@ DockHitResult DockLayout::hit_test(int32_t local_x, int32_t local_y) const noexc
         return DockHitResult{DockHitType::None, -1};
     }
 
-    // Check launcher button (launcher button stays at fixed position or scrolls with content)
-    // Here, launcher button is positioned at launcher_button_rect_ (shifted by scroll if scrolled)
+    // Check launcher button (shifted by scroll if scrolled)
     core::Rect visible_launcher = launcher_button_rect_;
     visible_launcher.x -= scroll_offset_x_;
     if (visible_launcher.contains(pt)) {
@@ -92,6 +100,20 @@ DockHitResult DockLayout::hit_test(int32_t local_x, int32_t local_y) const noexc
         if (r.contains(pt)) {
             return DockHitResult{DockHitType::Item, static_cast<int32_t>(i)};
         }
+    }
+
+    // Check keyboard button
+    core::Rect visible_kbd = keyboard_button_rect_;
+    visible_kbd.x -= scroll_offset_x_;
+    if (visible_kbd.contains(pt)) {
+        return DockHitResult{DockHitType::KeyboardButton, -1};
+    }
+
+    // Check power button
+    core::Rect visible_power = power_button_rect_;
+    visible_power.x -= scroll_offset_x_;
+    if (visible_power.contains(pt)) {
+        return DockHitResult{DockHitType::PowerButton, -1};
     }
 
     return DockHitResult{DockHitType::Background, -1};

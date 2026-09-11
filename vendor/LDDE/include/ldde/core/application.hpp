@@ -28,6 +28,8 @@
 #include "ldde/system/system_ui.hpp"
 #include "ldde/notification/notification_manager.hpp"
 #include "ldde/settings/settings_manager.hpp"
+#include "ldde/system/power_menu.hpp"
+#include "ldde/system/virtual_keyboard.hpp"
 
 namespace ldde::core {
 
@@ -83,6 +85,10 @@ public:
     [[nodiscard]] const notification::NotificationManager& notification_manager() const noexcept { return notification_manager_; }
     [[nodiscard]] settings::SettingsManager& settings_manager() noexcept { return settings_manager_; }
     [[nodiscard]] const settings::SettingsManager& settings_manager() const noexcept { return settings_manager_; }
+    [[nodiscard]] system::PowerMenu& power_menu() noexcept { return power_menu_; }
+    [[nodiscard]] const system::PowerMenu& power_menu() const noexcept { return power_menu_; }
+    [[nodiscard]] system::VirtualKeyboard& virtual_keyboard() noexcept { return virtual_keyboard_; }
+    [[nodiscard]] const system::VirtualKeyboard& virtual_keyboard() const noexcept { return virtual_keyboard_; }
 
     [[nodiscard]] static std::optional<CommandLineOptions> parse_args(int argc, char* argv[]);
     static void print_help(std::string_view program_name);
@@ -112,6 +118,8 @@ private:
     system::SystemUI system_ui_;
     notification::NotificationManager notification_manager_;
     settings::SettingsManager settings_manager_;
+    system::PowerMenu power_menu_;
+    system::VirtualKeyboard virtual_keyboard_;
 
     CommandLineOptions cli_options_;
     int exit_code_ = 0;

@@ -14,6 +14,8 @@ enum class DockHitType {
     None = 0,
     LauncherButton,
     Item,
+    KeyboardButton,
+    PowerButton,
     Background
 };
 
@@ -35,6 +37,8 @@ public:
 
     [[nodiscard]] const core::Rect& dock_geometry() const noexcept { return dock_geometry_; }
     [[nodiscard]] const core::Rect& launcher_button_rect() const noexcept { return launcher_button_rect_; }
+    [[nodiscard]] const core::Rect& keyboard_button_rect() const noexcept { return keyboard_button_rect_; }
+    [[nodiscard]] const core::Rect& power_button_rect() const noexcept { return power_button_rect_; }
     [[nodiscard]] const std::vector<core::Rect>& item_rects() const noexcept { return item_rects_; }
     [[nodiscard]] int32_t item_size() const noexcept { return item_size_; }
     [[nodiscard]] int32_t item_spacing() const noexcept { return item_spacing_; }
@@ -56,6 +60,8 @@ public:
 private:
     core::Rect dock_geometry_{0, 0, 0, 0};
     core::Rect launcher_button_rect_{0, 0, 0, 0};
+    core::Rect keyboard_button_rect_{0, 0, 0, 0};
+    core::Rect power_button_rect_{0, 0, 0, 0};
     std::vector<core::Rect> item_rects_;
 
     int32_t item_size_ = 48;

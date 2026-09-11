@@ -168,6 +168,8 @@ set(LDDE_CORE_SOURCES
     src/system/system_ui_view.cpp
     src/system/system_ui_controller.cpp
     src/system/system_ui.cpp
+    src/system/power_menu.cpp
+    src/system/virtual_keyboard.cpp
     src/notification/notification.cpp
     src/notification/notification_store.cpp
     src/notification/internal_notification_backend.cpp

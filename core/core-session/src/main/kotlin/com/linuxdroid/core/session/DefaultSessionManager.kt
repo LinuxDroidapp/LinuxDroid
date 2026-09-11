@@ -309,7 +309,7 @@ class DefaultSessionManager(
             log.withEnvironment(environment.id).info("[SESSION_STEP_8] Launching graphical session via Guest Init -> LDDM ($lddmPath)")
             val sessionProcess = runtimeBackend.execute(
                 environment = environment,
-                command = listOf(lddmPath),
+                command = listOf("/sbin/linuxdroid-init", "GUI"),
                 workingDirectory = "/home/user",
                 extraEnv = mapOf(
                     "LINUXDROID_START_MODE" to StartMode.GUI.name,

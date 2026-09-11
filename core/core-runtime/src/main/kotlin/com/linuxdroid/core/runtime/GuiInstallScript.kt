@@ -22,7 +22,9 @@ import java.io.File
  */
 object GuiInstallScript {
     const val GUI_INSTALL_SCRIPT_PATH = "/etc/linuxdroid/gui-install.sh"
-    const val GUI_STAGED_PACKAGES_DIR = "/root/.linuxdroid/gui-packages"
+    const val GUI_INSTALL_SCRIPT_ALT_PATH = "/etc/linuxdroid/install-gui.sh"
+    const val GUI_STAGED_PACKAGES_DIR = "/tmp/linuxdroid-packages"
+    const val GUI_STAGED_PACKAGES_LEGACY_DIR = "/root/.linuxdroid/gui-packages"
     const val GUI_INSTALL_COMPLETE_MARKER = "/etc/linuxdroid/GUI_INSTALL_COMPLETE"
     const val GUI_INSTALL_STATE_PATH = "/etc/linuxdroid/gui-install-state"
 
@@ -160,8 +162,10 @@ validate_prerequisites_action() {
 run_cmd "VALIDATE_PREREQUISITES" "validate CLI prerequisites" validate_prerequisites_action
 
 # Locate staged LinuxDroid .deb files
-GUI_PKGS_DIR="/root/.linuxdroid/gui-packages"
-if [ ! -d "§GUI_PKGS_DIR" ] && [ -d "/root/linuxdroid/packages" ]; then
+GUI_PKGS_DIR="/tmp/linuxdroid-packages"
+if [ ! -d "§GUI_PKGS_DIR" ] && [ -d "/root/.linuxdroid/gui-packages" ]; then
+    GUI_PKGS_DIR="/root/.linuxdroid/gui-packages"
+elif [ ! -d "§GUI_PKGS_DIR" ] && [ -d "/root/linuxdroid/packages" ]; then
     GUI_PKGS_DIR="/root/linuxdroid/packages"
 fi
 
@@ -171,7 +175,7 @@ if [ -f "§GUI_PKGS_DIR/linuxdroid-display-manager.deb" ]; then
 elif [ -f "§GUI_PKGS_DIR/LDDM.deb" ]; then
     LDDM_DEB="§GUI_PKGS_DIR/LDDM.deb"
 elif [ -d "§GUI_PKGS_DIR" ]; then
-    LDDM_DEB="§(find "§GUI_PKGS_DIR" /root/linuxdroid/packages /tmp/staging_pkgs -type f \( -name "*display-manager*.deb" -o -name "*lddm*.deb" \) 2>/dev/null | head -n 1 || true)"
+    LDDM_DEB="§(find "§GUI_PKGS_DIR" /tmp/linuxdroid-packages /root/.linuxdroid/gui-packages /root/linuxdroid/packages -type f \( -name "*display-manager*.deb" -o -name "*lddm*.deb" \) 2>/dev/null | head -n 1 || true)"
 fi
 
 LDDE_DEB=""
@@ -180,7 +184,7 @@ if [ -f "§GUI_PKGS_DIR/linuxdroid-desktop-environment.deb" ]; then
 elif [ -f "§GUI_PKGS_DIR/LDDE.deb" ]; then
     LDDE_DEB="§GUI_PKGS_DIR/LDDE.deb"
 elif [ -d "§GUI_PKGS_DIR" ]; then
-    LDDE_DEB="§(find "§GUI_PKGS_DIR" /root/linuxdroid/packages /tmp/staging_pkgs -type f \( -name "*desktop-environment*.deb" -o -name "*ldde*.deb" \) 2>/dev/null | head -n 1 || true)"
+    LDDE_DEB="§(find "§GUI_PKGS_DIR" /tmp/linuxdroid-packages /root/.linuxdroid/gui-packages /root/linuxdroid/packages -type f \( -name "*desktop-environment*.deb" -o -name "*ldde*.deb" \) 2>/dev/null | head -n 1 || true)"
 fi
 
 if [ -z "§LDDM_DEB" ] || [ ! -f "§LDDM_DEB" ]; then
@@ -279,32 +283,13 @@ install_wayland_action() {
 run_cmd "INSTALL_WAYLAND" "apt-get install -y <wayland_packages>" install_wayland_action
 
 # -----------------------------------------------------------------------------
-# 5. Install LDDM and LDDE Debian Packages
+# 5. Install LDDM and LDDE Debian Packages via APT
 # -----------------------------------------------------------------------------
-install_deb_action() {
-    local deb_path="§1"
-    local pkg_name="§2"
-    if [ ! -f "§deb_path" ]; then
-        echo "Debian package file missing: §deb_path" >&2
-        return 1
-    fi
-    if apt-get install -y "§deb_path"; then
-        return 0
-    fi
-    echo "Direct apt-get install failed for §pkg_name; running dpkg -i + apt-get install -f -y..." >&2
-    dpkg -i "§deb_path" || true
-    apt-get install -f -y
+install_gui_packages_action() {
+    echo "Installing LDDM and LDDE Debian packages via APT: §LDDM_DEB §LDDE_DEB"
+    apt-get install -y "§LDDM_DEB" "§LDDE_DEB"
 }
-
-install_lddm_action() {
-    install_deb_action "§LDDM_DEB" "linuxdroid-display-manager"
-}
-run_cmd "INSTALL_LDDM" "install LDDM from staged deb" install_lddm_action
-
-install_ldde_action() {
-    install_deb_action "§LDDE_DEB" "linuxdroid-desktop-environment"
-}
-run_cmd "INSTALL_LDDE" "install LDDE from staged deb" install_ldde_action
+run_cmd "INSTALL_GUI_PACKAGES" "apt-get install -y <staged_gui_debs>" install_gui_packages_action
 
 # -----------------------------------------------------------------------------
 # 6. Configure GUI (LDDM and LDDE config files)
@@ -430,14 +415,21 @@ exit 0
 """.trimIndent().replace('§', '$') + "\n"
 
     /**
-     * Writes the GUI install script to the rootfs.
+     * Writes the GUI install script to the rootfs at both /etc/linuxdroid/install-gui.sh and /etc/linuxdroid/gui-install.sh.
      */
     fun writeScript(rootfsDir: File): File {
-        val scriptFile = File(rootfsDir, GUI_INSTALL_SCRIPT_PATH.removePrefix("/"))
+        val scriptFile = File(rootfsDir, GUI_INSTALL_SCRIPT_ALT_PATH.removePrefix("/"))
         scriptFile.parentFile?.mkdirs()
         scriptFile.writeText(SCRIPT_CONTENT, Charsets.UTF_8)
         scriptFile.setExecutable(true, false)
         scriptFile.setReadable(true, false)
+
+        val legacyFile = File(rootfsDir, GUI_INSTALL_SCRIPT_PATH.removePrefix("/"))
+        legacyFile.parentFile?.mkdirs()
+        legacyFile.writeText(SCRIPT_CONTENT, Charsets.UTF_8)
+        legacyFile.setExecutable(true, false)
+        legacyFile.setReadable(true, false)
+
         return scriptFile
     }
 
@@ -451,6 +443,7 @@ exit 0
         lddeDeb: File?,
     ) {
         val packagesDir = File(rootfsDir, GUI_STAGED_PACKAGES_DIR.removePrefix("/")).apply { mkdirs() }
+        val legacyPackagesDir = File(rootfsDir, GUI_STAGED_PACKAGES_LEGACY_DIR.removePrefix("/")).apply { mkdirs() }
         val fallbackDir = File(rootfsDir, "root/linuxdroid/packages")
 
         val actualLddm = lddmDeb?.takeIf { it.exists() }
@@ -460,10 +453,13 @@ exit 0
         if (actualLddm != null && actualLddm.exists()) {
             val dest1 = File(packagesDir, "linuxdroid-display-manager.deb")
             val dest2 = File(packagesDir, "LDDM.deb")
+            val destLegacy = File(legacyPackagesDir, "linuxdroid-display-manager.deb")
             if (actualLddm.canonicalPath != dest1.canonicalPath) actualLddm.copyTo(dest1, overwrite = true)
             if (actualLddm.canonicalPath != dest2.canonicalPath) actualLddm.copyTo(dest2, overwrite = true)
+            if (actualLddm.canonicalPath != destLegacy.canonicalPath) actualLddm.copyTo(destLegacy, overwrite = true)
             dest1.setReadable(true, false)
             dest2.setReadable(true, false)
+            destLegacy.setReadable(true, false)
         }
 
         val actualLdde = lddeDeb?.takeIf { it.exists() }
@@ -473,10 +469,13 @@ exit 0
         if (actualLdde != null && actualLdde.exists()) {
             val dest1 = File(packagesDir, "linuxdroid-desktop-environment.deb")
             val dest2 = File(packagesDir, "LDDE.deb")
+            val destLegacy = File(legacyPackagesDir, "linuxdroid-desktop-environment.deb")
             if (actualLdde.canonicalPath != dest1.canonicalPath) actualLdde.copyTo(dest1, overwrite = true)
             if (actualLdde.canonicalPath != dest2.canonicalPath) actualLdde.copyTo(dest2, overwrite = true)
+            if (actualLdde.canonicalPath != destLegacy.canonicalPath) actualLdde.copyTo(destLegacy, overwrite = true)
             dest1.setReadable(true, false)
             dest2.setReadable(true, false)
+            destLegacy.setReadable(true, false)
         }
     }
 

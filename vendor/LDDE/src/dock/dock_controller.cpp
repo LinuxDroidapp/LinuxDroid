@@ -43,6 +43,10 @@ bool DockController::handle_touch_down(int32_t x, int32_t y) {
 
     if (hit.type == DockHitType::LauncherButton) {
         pressed_index_ = -2;
+    } else if (hit.type == DockHitType::KeyboardButton) {
+        pressed_index_ = -3;
+    } else if (hit.type == DockHitType::PowerButton) {
+        pressed_index_ = -4;
     } else if (hit.type == DockHitType::Item) {
         pressed_index_ = hit.item_index;
     } else {
@@ -81,6 +85,10 @@ bool DockController::handle_touch_up(int32_t x, int32_t y) {
         DockHitResult hit = layout_.hit_test(x, y);
         if (hit.type == DockHitType::LauncherButton && pressed_index_ == -2) {
             activate_launcher();
+        } else if (hit.type == DockHitType::KeyboardButton && pressed_index_ == -3) {
+            activate_keyboard();
+        } else if (hit.type == DockHitType::PowerButton && pressed_index_ == -4) {
+            activate_power_menu();
         } else if (hit.type == DockHitType::Item && pressed_index_ == hit.item_index) {
             activate_item(hit.item_index);
         }
@@ -107,6 +115,10 @@ bool DockController::handle_pointer_motion(int32_t x, int32_t y) {
 
     if (hit.type == DockHitType::LauncherButton) {
         new_hovered = -2;
+    } else if (hit.type == DockHitType::KeyboardButton) {
+        new_hovered = -3;
+    } else if (hit.type == DockHitType::PowerButton) {
+        new_hovered = -4;
     } else if (hit.type == DockHitType::Item) {
         new_hovered = hit.item_index;
     }
@@ -128,6 +140,14 @@ bool DockController::handle_pointer_button(uint32_t button, uint32_t state, int3
             pressed_index_ = -2;
             request_render();
             return true;
+        } else if (hit.type == DockHitType::KeyboardButton) {
+            pressed_index_ = -3;
+            request_render();
+            return true;
+        } else if (hit.type == DockHitType::PowerButton) {
+            pressed_index_ = -4;
+            request_render();
+            return true;
         } else if (hit.type == DockHitType::Item) {
             pressed_index_ = hit.item_index;
             request_render();
@@ -138,6 +158,10 @@ bool DockController::handle_pointer_button(uint32_t button, uint32_t state, int3
             DockHitResult hit = layout_.hit_test(x, y);
             if (hit.type == DockHitType::LauncherButton && pressed_index_ == -2) {
                 activate_launcher();
+            } else if (hit.type == DockHitType::KeyboardButton && pressed_index_ == -3) {
+                activate_keyboard();
+            } else if (hit.type == DockHitType::PowerButton && pressed_index_ == -4) {
+                activate_power_menu();
             } else if (hit.type == DockHitType::Item && pressed_index_ == hit.item_index) {
                 activate_item(hit.item_index);
             }
@@ -213,11 +237,29 @@ void DockController::activate_item(size_t index) {
 
     if (!item->is_running()) {
         // Case 1: Application is NOT running -> Launch shortcut
+        launcher::LaunchRequest req;
         const auto* meta = catalog_.find(item->id());
-        if (!meta) {
-            LDDE_LOG_WARN(Dock, "Cannot launch application " << item->id().value()
-                                << ": not found in catalog");
-            return;
+        if (meta) {
+            req = launcher::LaunchRequest::from_metadata(*meta);
+        } else {
+            const std::string& pid_val = item->id().value();
+            if (pid_val == "terminal.desktop" || pid_val == "terminal") {
+                req.name = "Terminal";
+                req.executable = "x-terminal-emulator";
+                req.arguments = {};
+            } else if (pid_val == "file-manager.desktop" || pid_val == "file-manager") {
+                req.name = "File Manager";
+                req.executable = "pcmanfm";
+                req.arguments = {"~"};
+            } else if (pid_val == "trash.desktop" || pid_val == "trash") {
+                req.name = "Trash";
+                req.executable = "pcmanfm";
+                req.arguments = {"trash:///"};
+            } else {
+                LDDE_LOG_WARN(Dock, "Cannot launch application " << item->id().value()
+                                    << ": not found in catalog");
+                return;
+            }
         }
 
         if (!app_launcher_) {
@@ -225,7 +267,6 @@ void DockController::activate_item(size_t index) {
             return;
         }
 
-        launcher::LaunchRequest req = launcher::LaunchRequest::from_metadata(*meta);
         LDDE_LOG_INFO(Dock, "Launching application '" << req.name << "' (" << req.executable << ")");
         auto res = app_launcher_->launch(req);
         if (!res.is_success()) {
@@ -257,6 +298,20 @@ void DockController::activate_item(size_t index) {
         LDDE_LOG_INFO(Dock, "Minimizing active window " << target_win_id
                             << " for application '" << item->name() << "'");
         window_manager_.minimize(target_win_id);
+    }
+}
+
+void DockController::activate_keyboard() {
+    LDDE_LOG_INFO(Dock, "Dock keyboard button activated");
+    if (on_toggle_keyboard_) {
+        on_toggle_keyboard_();
+    }
+}
+
+void DockController::activate_power_menu() {
+    LDDE_LOG_INFO(Dock, "Dock power button activated");
+    if (on_open_power_menu_) {
+        on_open_power_menu_();
     }
 }
 

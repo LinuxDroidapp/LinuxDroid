@@ -30,6 +30,18 @@ private:
                                 bool is_hovered,
                                 bool is_pressed);
 
+    void render_keyboard_button(cairo_t* cr,
+                                const core::Rect& rect,
+                                const shell::ShellTheme& theme,
+                                bool is_hovered,
+                                bool is_pressed);
+
+    void render_power_button(cairo_t* cr,
+                             const core::Rect& rect,
+                             const shell::ShellTheme& theme,
+                             bool is_hovered,
+                             bool is_pressed);
+
     void render_dock_item(cairo_t* cr,
                           const DockItem& item,
                           const core::Rect& rect,

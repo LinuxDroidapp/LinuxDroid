@@ -91,6 +91,26 @@ void DockView::render(shell::ShmBuffer& buffer,
                          pressed_index == static_cast<int32_t>(i));
     }
 
+    // 5. Separator before trailing buttons
+    core::Rect kbd_rect = layout.keyboard_button_rect();
+    kbd_rect.x -= layout.scroll_offset_x();
+    double trailing_sep_x = kbd_rect.x - 4.0;
+    cairo_set_line_width(cr, 1.0);
+    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.15);
+    cairo_move_to(cr, trailing_sep_x, kbd_rect.y + 6.0);
+    cairo_line_to(cr, trailing_sep_x, kbd_rect.y + kbd_rect.height - 6.0);
+    cairo_stroke(cr);
+
+    // 6. Render keyboard button
+    render_keyboard_button(cr, kbd_rect, theme,
+                           hovered_index == -3, pressed_index == -3);
+
+    // 7. Render power button
+    core::Rect power_rect = layout.power_button_rect();
+    power_rect.x -= layout.scroll_offset_x();
+    render_power_button(cr, power_rect, theme,
+                        hovered_index == -4, pressed_index == -4);
+
     cairo_surface_flush(surface);
     cairo_destroy(cr);
     cairo_surface_destroy(surface);
@@ -134,6 +154,111 @@ void DockView::render_launcher_button(cairo_t* cr,
             cairo_fill(cr);
         }
     }
+}
+
+void DockView::render_keyboard_button(cairo_t* cr,
+                                     const core::Rect& rect,
+                                     const shell::ShellTheme& theme,
+                                     bool is_hovered,
+                                     bool is_pressed) {
+    double x = rect.x;
+    double y = rect.y;
+    double size = rect.width;
+    double r = size * 0.25;
+
+    // Background pill/card
+    draw_rounded_rect(cr, x, y, size, size, r);
+    if (is_pressed) {
+        cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.25);
+    } else if (is_hovered) {
+        cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.15);
+    } else {
+        set_cairo_color(cr, theme.dock_item_bg);
+    }
+    cairo_fill_preserve(cr);
+
+    set_cairo_color(cr, theme.dock_border);
+    cairo_set_line_width(cr, 1.0);
+    cairo_stroke(cr);
+
+    // Keyboard icon
+    double kw = size * 0.60;
+    double kh = size * 0.40;
+    double kx = x + (size - kw) / 2.0;
+    double ky = y + (size - kh) / 2.0;
+    double kr = size * 0.08;
+
+    // Outer keyboard frame
+    draw_rounded_rect(cr, kx, ky, kw, kh, kr);
+    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.85);
+    cairo_set_line_width(cr, 1.4);
+    cairo_stroke(cr);
+
+    // Keys inside: 2 rows of dots + spacebar
+    double key_dot_r = size * 0.035;
+    double row1_y = ky + kh * 0.35;
+    for (int col = 0; col < 4; ++col) {
+        double col_x = kx + kw * 0.20 + col * (kw * 0.20);
+        cairo_arc(cr, col_x, row1_y, key_dot_r, 0, 2.0 * M_PI);
+        cairo_fill(cr);
+    }
+
+    // Spacebar at bottom
+    double space_w = kw * 0.50;
+    double space_h = 1.6;
+    double space_x = kx + (kw - space_w) / 2.0;
+    double space_y = ky + kh * 0.70;
+    draw_rounded_rect(cr, space_x, space_y, space_w, space_h, 0.8);
+    cairo_fill(cr);
+}
+
+void DockView::render_power_button(cairo_t* cr,
+                                  const core::Rect& rect,
+                                  const shell::ShellTheme& theme,
+                                  bool is_hovered,
+                                  bool is_pressed) {
+    double x = rect.x;
+    double y = rect.y;
+    double size = rect.width;
+    double r = size * 0.25;
+
+    // Background pill/card with subtle warm/red tint
+    draw_rounded_rect(cr, x, y, size, size, r);
+    if (is_pressed) {
+        cairo_set_source_rgba(cr, 0.90, 0.25, 0.25, 0.35);
+    } else if (is_hovered) {
+        cairo_set_source_rgba(cr, 0.90, 0.25, 0.25, 0.20);
+    } else {
+        set_cairo_color(cr, theme.dock_item_bg);
+    }
+    cairo_fill_preserve(cr);
+
+    set_cairo_color(cr, theme.dock_border);
+    cairo_set_line_width(cr, 1.0);
+    cairo_stroke(cr);
+
+    // Power icon (IEC 5009 symbol: broken circle with vertical line through top gap)
+    double cx = x + size / 2.0;
+    double cy = y + size / 2.0 + 1.0;
+    double icon_r = size * 0.22;
+
+    if (is_hovered || is_pressed) {
+        cairo_set_source_rgba(cr, 1.0, 0.40, 0.40, 0.95);
+    } else {
+        cairo_set_source_rgba(cr, 0.95, 0.95, 0.95, 0.90);
+    }
+    cairo_set_line_width(cr, 1.8);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+
+    double start_angle = -M_PI_2 + 0.60;
+    double end_angle = -M_PI_2 - 0.60 + 2.0 * M_PI;
+    cairo_arc(cr, cx, cy, icon_r, start_angle, end_angle);
+    cairo_stroke(cr);
+
+    // Vertical line through gap
+    cairo_move_to(cr, cx, cy - icon_r - 2.0);
+    cairo_line_to(cr, cx, cy - 1.0);
+    cairo_stroke(cr);
 }
 
 void DockView::render_dock_item(cairo_t* cr,
@@ -220,22 +345,15 @@ void DockView::render_dock_item(cairo_t* cr,
         double center_x = x + size / 2.0;
 
         if (item.is_active()) {
-            // Active application: glowing pill indicator
-            double pill_w = size * 0.32;
-            double pill_h = 3.0;
-            draw_rounded_rect(cr, center_x - pill_w / 2.0, ind_y - 1.0, pill_w, pill_h, 1.5);
+            // Active application: small rounded-square active indicator
+            double sq_size = 5.0;
+            draw_rounded_rect(cr, center_x - sq_size / 2.0, ind_y - sq_size / 2.0, sq_size, sq_size, 1.2);
             cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.95);
             cairo_fill(cr);
         } else {
             // Running but not active: dot indicator
             double dot_r = 2.4;
-            if (item.window_count() > 1) {
-                // Multiple windows: two subtle dots
-                cairo_arc(cr, center_x - 4.0, ind_y, dot_r, 0, 2.0 * M_PI);
-                cairo_arc(cr, center_x + 4.0, ind_y, dot_r, 0, 2.0 * M_PI);
-            } else {
-                cairo_arc(cr, center_x, ind_y, dot_r, 0, 2.0 * M_PI);
-            }
+            cairo_arc(cr, center_x, ind_y, dot_r, 0, 2.0 * M_PI);
             cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.75);
             cairo_fill(cr);
         }

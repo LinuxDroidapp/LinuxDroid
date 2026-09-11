@@ -15,8 +15,15 @@ import com.linuxdroid.app.ui.screens.*
 sealed class Screen(val route: String) {
     object Home : Screen("home")
     object Environments : Screen("environments")
-    object Terminal : Screen("terminal/{environmentId}") {
-        fun route(environmentId: String) = "terminal/$environmentId"
+    object Terminal : Screen("terminal/{environmentId}?cmd={cmd}") {
+        fun route(environmentId: String, cmd: String? = null): String {
+            return if (cmd != null) {
+                val encoded = java.net.URLEncoder.encode(cmd, "UTF-8")
+                "terminal/$environmentId?cmd=$encoded"
+            } else {
+                "terminal/$environmentId"
+            }
+        }
     }
     object Desktop : Screen("desktop/{environmentId}") {
         fun route(environmentId: String) = "desktop/$environmentId"
@@ -51,7 +58,14 @@ fun LinuxDroidNavGraph(
         }
         composable(
             route = Screen.Terminal.route,
-            arguments = listOf(navArgument("environmentId") { type = NavType.StringType })
+            arguments = listOf(
+                navArgument("environmentId") { type = NavType.StringType },
+                navArgument("cmd") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
         ) {
             TerminalScreen(navController = navController)
         }

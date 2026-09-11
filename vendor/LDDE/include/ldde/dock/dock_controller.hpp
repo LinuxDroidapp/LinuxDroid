@@ -17,6 +17,8 @@ namespace ldde::dock {
 class DockController {
 public:
     using RequestRenderCallback = std::function<void()>;
+    using ToggleKeyboardCallback = std::function<void()>;
+    using OpenPowerMenuCallback = std::function<void()>;
 
     DockController(DockStateMachine& state_machine,
                    DockModel& model,
@@ -49,12 +51,16 @@ public:
     // Actions
     void activate_launcher();
     void activate_item(size_t index);
+    void activate_keyboard();
+    void activate_power_menu();
 
     [[nodiscard]] int32_t hovered_index() const noexcept { return hovered_index_; }
     [[nodiscard]] int32_t pressed_index() const noexcept { return pressed_index_; }
     [[nodiscard]] int32_t selected_index() const noexcept { return selected_index_; }
 
     void on_request_render(RequestRenderCallback cb) { on_request_render_ = std::move(cb); }
+    void on_toggle_keyboard(ToggleKeyboardCallback cb) { on_toggle_keyboard_ = std::move(cb); }
+    void on_open_power_menu(OpenPowerMenuCallback cb) { on_open_power_menu_ = std::move(cb); }
     void request_render();
 
 private:
@@ -78,6 +84,8 @@ private:
     bool is_scrolling_ = false;
 
     RequestRenderCallback on_request_render_;
+    ToggleKeyboardCallback on_toggle_keyboard_;
+    OpenPowerMenuCallback on_open_power_menu_;
 };
 
 } // namespace ldde::dock

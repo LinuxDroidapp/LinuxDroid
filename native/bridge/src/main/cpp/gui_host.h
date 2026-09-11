@@ -61,6 +61,7 @@ public:
     void enqueueWindowAction(uint64_t window_id, const std::string& action);
     void enqueueWindowAction(void* handle, const std::string& action, int32_t p1 = 0, int32_t p2 = 0);
     bool restartDesktopShell();
+    void processFifoKeyInput(const char* str);
 
     // Compositor Desktop API callback handlers
     static void handleSurfaceAdded(struct weston_desktop_surface* surface, void* user_data);
@@ -95,6 +96,9 @@ private:
     struct weston_output* output_ = nullptr;
     struct linuxdroid_vsync_bridge* vsync_bridge_ = nullptr;
     struct wl_event_source* vsync_source_ = nullptr;
+    int fifo_fd_ = -1;
+    struct wl_event_source* fifo_source_ = nullptr;
+    std::string fifo_path_;
 
     // Thread-safe window actions dispatched on compositor event loop
     struct PendingWindowAction {

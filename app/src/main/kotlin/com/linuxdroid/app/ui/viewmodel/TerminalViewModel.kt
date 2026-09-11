@@ -48,6 +48,7 @@ class TerminalViewModel @Inject constructor(
 
     private val log = LinuxDroidLogger(LogSubsystem.APPLICATION)
     val environmentId: String = checkNotNull(savedStateHandle["environmentId"])
+    val initialCmd: String? = savedStateHandle["cmd"]
 
     val environment: StateFlow<Environment?> = dao.observeById(environmentId)
         .map { entity -> entity?.let { EnvironmentMapper.toDomain(it) } }
@@ -150,7 +151,12 @@ class TerminalViewModel @Inject constructor(
                     closeSession()
 
                     val targetShell = env.configuration.shell.ifBlank { "/bin/bash" }
-                    val shellCommand = listOf(targetShell, "-l")
+                    val shellCommand = if (!initialCmd.isNullOrBlank()) {
+                        val decodedCmd = runCatching { java.net.URLDecoder.decode(initialCmd, "UTF-8") }.getOrDefault(initialCmd)
+                        listOf(targetShell, "-l", "-c", "$decodedCmd && exit 0 || exec $targetShell -l")
+                    } else {
+                        listOf(targetShell, "-l")
+                    }
 
                     val session = runtimeBackend.startInteractiveShell(
                         environment = env,

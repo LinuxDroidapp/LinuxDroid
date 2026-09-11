@@ -223,9 +223,23 @@ Status Application::initialize_components() {
     auto connect_touch_device = [this](input::Seat* seat) {
         if (!seat || !seat->touch() || !touch_interaction_manager_) return;
         auto* tch = seat->touch();
+        static int32_t last_touch_x = 0;
+        static int32_t last_touch_y = 0;
         tch->on_down([this](const input::TouchDownEvent& ev) {
             int32_t px = static_cast<int32_t>(ev.x);
             int32_t py = static_cast<int32_t>(ev.y);
+            last_touch_x = px;
+            last_touch_y = py;
+            if (power_menu_.is_open()) {
+                if (power_menu_.handle_touch_down(px, py)) {
+                    return;
+                }
+            }
+            if (virtual_keyboard_.is_open()) {
+                if (virtual_keyboard_.handle_touch_down(px, py)) {
+                    return;
+                }
+            }
             if (notification_manager_.handle_touch_down(px, py)) {
                 return;
             }
@@ -267,6 +281,18 @@ Status Application::initialize_components() {
         tch->on_motion([this](const input::TouchMotionEvent& ev) {
             int32_t px = static_cast<int32_t>(ev.x);
             int32_t py = static_cast<int32_t>(ev.y);
+            last_touch_x = px;
+            last_touch_y = py;
+            if (power_menu_.is_open()) {
+                if (power_menu_.handle_pointer_motion(px, py)) {
+                    return;
+                }
+            }
+            if (virtual_keyboard_.is_open()) {
+                if (virtual_keyboard_.handle_pointer_motion(px, py)) {
+                    return;
+                }
+            }
             if (notification_manager_.handle_touch_motion(px, py)) {
                 return;
             }
@@ -301,6 +327,16 @@ Status Application::initialize_components() {
             desktop_.handle_touch_motion(px, py);
         });
         tch->on_up([this](const input::TouchUpEvent& ev) {
+            if (power_menu_.is_open()) {
+                if (power_menu_.handle_touch_up(last_touch_x, last_touch_y)) {
+                    return;
+                }
+            }
+            if (virtual_keyboard_.is_open()) {
+                if (virtual_keyboard_.handle_touch_up(last_touch_x, last_touch_y)) {
+                    return;
+                }
+            }
             if (notification_manager_.handle_touch_up(0, 0)) {
                 return;
             }
@@ -329,6 +365,14 @@ Status Application::initialize_components() {
             desktop_.handle_touch_up(0, 0);
         });
         tch->on_cancel([this]() {
+            if (power_menu_.is_open()) {
+                power_menu_.handle_touch_cancel();
+                return;
+            }
+            if (virtual_keyboard_.is_open()) {
+                virtual_keyboard_.handle_touch_cancel();
+                return;
+            }
             notification_manager_.handle_touch_cancel();
             if (switcher_.is_open()) {
                 switcher_.handle_touch_cancel();
@@ -386,6 +430,8 @@ Status Application::initialize_components() {
             system_ui_.update_display_policy(*policy);
             notification_manager_.update_display_policy(*policy);
             settings_manager_.update_display_policy(*policy);
+            power_menu_.update_layout(*policy);
+            virtual_keyboard_.update_layout(*policy);
             if (touch_interaction_manager_) {
                 touch_interaction_manager_->handle_display_change(*policy);
             }
@@ -408,6 +454,8 @@ Status Application::initialize_components() {
                 system_ui_.update_display_policy(*policy);
                 notification_manager_.update_display_policy(*policy);
                 settings_manager_.update_display_policy(*policy);
+                power_menu_.update_layout(*policy);
+                virtual_keyboard_.update_layout(*policy);
                 if (touch_interaction_manager_) {
                     touch_interaction_manager_->handle_display_change(*policy);
                 }
@@ -459,6 +507,17 @@ Status Application::initialize_components() {
         shell_.mark_dirty(shell::ShellDirtyFlag::Dock);
         shell_.render_dirty();
     });
+
+    dock_.controller().on_toggle_keyboard([this]() {
+        virtual_keyboard_.toggle();
+    });
+
+    dock_.controller().on_open_power_menu([this]() {
+        power_menu_.open();
+    });
+
+    power_menu_.update_layout(default_policy);
+    virtual_keyboard_.update_layout(default_policy);
 
     // Initialize D9 Application Switcher
     s = switcher_.initialize(application_catalog_, window_registry_, window_manager_, default_policy, config_);
@@ -524,6 +583,14 @@ Status Application::initialize_components() {
         if (notification_manager_.has_visible_popups()) {
             notification_manager_.render_popups(buf, theme, shell_.tokens());
         }
+
+        if (virtual_keyboard_.is_open()) {
+            virtual_keyboard_.render(buf, theme, shell_.tokens());
+        }
+
+        if (power_menu_.is_open()) {
+            power_menu_.render(buf, theme, shell_.tokens());
+        }
     });
 
     auto update_overlay_state = [this]() {
@@ -532,7 +599,9 @@ Status Application::initialize_components() {
                       launcher_.is_open() ||
                       notification_manager_.is_notification_center_open() ||
                       settings_manager_.is_open() ||
-                      notification_manager_.has_visible_popups();
+                      notification_manager_.has_visible_popups() ||
+                      virtual_keyboard_.is_open() ||
+                      power_menu_.is_open();
         shell_.overlay().set_active(active);
         shell_.mark_dirty(shell::ShellDirtyFlag::Overlay);
         shell_.render_dirty();
@@ -540,6 +609,11 @@ Status Application::initialize_components() {
 
     notification_manager_.on_request_render(update_overlay_state);
     settings_manager_.on_request_render(update_overlay_state);
+    power_menu_.on_request_render(update_overlay_state);
+    power_menu_.on_shutdown_requested([this]() {
+        request_shutdown(0);
+    });
+    virtual_keyboard_.on_request_render(update_overlay_state);
 
     settings_manager_.on_state_changed([this, update_overlay_state](settings::SettingsWindowMode new_mode) {
         if (new_mode == settings::SettingsWindowMode::Normal || new_mode == settings::SettingsWindowMode::Maximized) {

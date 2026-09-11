@@ -225,7 +225,13 @@ fun GuiInstallerScreen(
                 when (currentGuiState) {
                     GuiState.NOT_INSTALLED -> {
                         Button(
-                            onClick = { environment?.let { viewModel.installGui(it) } },
+                            onClick = {
+                                environment?.let { env ->
+                                    viewModel.prepareAndStartInGuestGuiInstall(env) {
+                                        navController.navigate(Screen.Terminal.route(environmentId, "/etc/linuxdroid/install-gui.sh"))
+                                    }
+                                }
+                            },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = neuColors.primaryAccent)
                         ) {
@@ -257,7 +263,13 @@ fun GuiInstallerScreen(
                     }
                     GuiState.FAILED -> {
                         Button(
-                            onClick = { environment?.let { viewModel.installGui(it) } },
+                            onClick = {
+                                environment?.let { env ->
+                                    viewModel.prepareAndStartInGuestGuiInstall(env) {
+                                        navController.navigate(Screen.Terminal.route(environmentId, "/etc/linuxdroid/install-gui.sh"))
+                                    }
+                                }
+                            },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = neuColors.primaryAccent)
                         ) {

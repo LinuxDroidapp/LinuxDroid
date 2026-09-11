@@ -226,7 +226,9 @@ fun HomeScreen(
                         } else if (activeEnvGuiState == GuiState.INSTALLED) {
                             navController.navigate(Screen.Desktop.route(activeEnv.id.value))
                         } else {
-                            navController.navigate(Screen.GuiInstaller.route(activeEnv.id.value))
+                            environmentViewModel.prepareAndStartInGuestGuiInstall(activeEnv) {
+                                navController.navigate(Screen.Terminal.route(activeEnv.id.value, "/etc/linuxdroid/install-gui.sh"))
+                            }
                         }
                     }
                 )

@@ -100,6 +100,34 @@ class GuiInstaller(
     }
 
     /**
+     * Stages GUI deb packages into the guest rootfs and writes the in-guest installation script.
+     * Prepares the rootfs so that an interactive CLI session running /etc/linuxdroid/install-gui.sh
+     * can install the GUI stack.
+     */
+    fun prepareInGuestGuiInstall(
+        environment: Environment,
+        lddmDebOverride: File? = null,
+        lddeDebOverride: File? = null,
+    ): Boolean {
+        val rootfsDir = storage.rootfsDir(environment.id)
+        val lddmDeb = lddmDebOverride
+            ?: packageInstaller.resolvePackageDeb("linuxdroid-display-manager", environment)
+            ?: File(rootfsDir, "root/linuxdroid/packages").listFiles()?.firstOrNull { it.name.startsWith("linuxdroid-display-manager") && it.name.endsWith(".deb") }
+            ?: File(rootfsDir, "root/linuxdroid/packages").listFiles()?.firstOrNull { it.name.startsWith("LDDM") && it.name.endsWith(".deb") }
+            ?: File(rootfsDir, "tmp/linuxdroid-packages").listFiles()?.firstOrNull { it.name.startsWith("linuxdroid-display-manager") && it.name.endsWith(".deb") }
+
+        val lddeDeb = lddeDebOverride
+            ?: packageInstaller.resolvePackageDeb("linuxdroid-desktop-environment", environment)
+            ?: File(rootfsDir, "root/linuxdroid/packages").listFiles()?.firstOrNull { it.name.startsWith("linuxdroid-desktop-environment") && it.name.endsWith(".deb") }
+            ?: File(rootfsDir, "root/linuxdroid/packages").listFiles()?.firstOrNull { it.name.startsWith("LDDE") && it.name.endsWith(".deb") }
+            ?: File(rootfsDir, "tmp/linuxdroid-packages").listFiles()?.firstOrNull { it.name.startsWith("linuxdroid-desktop-environment") && it.name.endsWith(".deb") }
+
+        GuiInstallScript.stageGuiPackages(rootfsDir, lddmDeb, lddeDeb)
+        GuiInstallScript.writeScript(rootfsDir)
+        return true
+    }
+
+    /**
      * Installs the complete graphical layer on top of an existing CLI environment.
      *
      * In case of failure:

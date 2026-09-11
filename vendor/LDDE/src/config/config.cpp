@@ -75,7 +75,7 @@ void Config::load_defaults() {
     set("dock", "enabled", "true");
     set("dock", "position", "bottom");
     set("dock", "visibility", "visible");
-    set("dock", "pinned", "");
+    set("dock", "pinned", "terminal.desktop,file-manager.desktop,trash.desktop");
     set("dock", "item_size", "48");
     set("dock", "spacing", "8");
     set("switcher", "enabled", "true");

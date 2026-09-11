@@ -19,7 +19,9 @@
 #include <sys/eventfd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
+#include <sstream>
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
 #include <cerrno>
@@ -830,6 +832,32 @@ void GuiHost::workerMain() {
         LOGI("Internal fallback DesktopSession disabled (LDDE guest desktop environment active)");
     }
 
+    // Create input FIFO for LDDE on-screen keyboard & session key injection
+    fifo_path_ = "/tmp/.linuxdroid_input_fifo";
+    unlink(fifo_path_.c_str());
+    if (mkfifo(fifo_path_.c_str(), 0666) == 0 || errno == EEXIST) {
+        chmod(fifo_path_.c_str(), 0666);
+        fifo_fd_ = open(fifo_path_.c_str(), O_RDWR | O_NONBLOCK);
+        if (fifo_fd_ >= 0) {
+            struct wl_event_loop* loop = wl_display_get_event_loop(display_);
+            fifo_source_ = wl_event_loop_add_fd(
+                loop, fifo_fd_, WL_EVENT_READABLE,
+                [](int fd, uint32_t /*mask*/, void* data) -> int {
+                    auto* host = static_cast<GuiHost*>(data);
+                    char buf[256];
+                    ssize_t n = read(fd, buf, sizeof(buf) - 1);
+                    if (n > 0) {
+                        buf[n] = '\0';
+                        host->processFifoKeyInput(buf);
+                    }
+                    return 0;
+                },
+                this
+            );
+            LOGI("INPUT_FIFO_CREATED: listening on %s", fifo_path_.c_str());
+        }
+    }
+
     // 12. Initialization successful: signal RUNNING to waiter
     {
         std::lock_guard<std::mutex> lock(lifecycle_mutex_);
@@ -842,6 +870,20 @@ void GuiHost::workerMain() {
     // 13. Run Wayland event loop (blocks until wl_display_terminate is called)
     wl_display_run(display_);
     LOGI("WESTON_EVENT_LOOP_STOPPED: Wayland/libweston event loop stopped");
+
+    // Clean up input FIFO
+    if (fifo_source_ != nullptr) {
+        wl_event_source_remove(fifo_source_);
+        fifo_source_ = nullptr;
+    }
+    if (fifo_fd_ >= 0) {
+        close(fifo_fd_);
+        fifo_fd_ = -1;
+    }
+    if (!fifo_path_.empty()) {
+        unlink(fifo_path_.c_str());
+        fifo_path_.clear();
+    }
 
     // Clean up Desktop Session and models
     DesktopSession::getInstance().stop();
@@ -1245,6 +1287,39 @@ bool GuiHost::restartDesktopShell() {
         LOGE("SHELL_RESTART_FAILED: failed to start restarted desktop shell client");
     }
     return ok;
+}
+
+void GuiHost::processFifoKeyInput(const char* str) {
+    if (!str || backend_ == nullptr || compositor_ == nullptr) return;
+    struct weston_seat* seat = linuxdroid_backend_get_seat(backend_);
+    if (!seat) return;
+
+    struct timespec ts;
+    weston_compositor_read_presentation_clock(compositor_, &ts);
+
+    std::stringstream ss(str);
+    int code = 0;
+    while (ss >> code) {
+        if (code <= 0) continue;
+
+        // Key Press
+        struct weston_key_event press_ev = {};
+        press_ev.base.ts = ts;
+        press_ev.base.seat = seat;
+        press_ev.key = static_cast<uint32_t>(code);
+        press_ev.key_state = WL_KEYBOARD_KEY_STATE_PRESSED;
+        press_ev.key_update_state = STATE_UPDATE_AUTOMATIC;
+        notify_key(&press_ev);
+
+        // Key Release
+        struct weston_key_event release_ev = {};
+        release_ev.base.ts = ts;
+        release_ev.base.seat = seat;
+        release_ev.key = static_cast<uint32_t>(code);
+        release_ev.key_state = WL_KEYBOARD_KEY_STATE_RELEASED;
+        release_ev.key_update_state = STATE_UPDATE_AUTOMATIC;
+        notify_key(&release_ev);
+    }
 }
 
 } // namespace gui

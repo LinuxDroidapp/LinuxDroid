@@ -21,6 +21,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 
@@ -522,6 +523,15 @@ class EnvironmentViewModel @Inject constructor(
                 log.error("Exception in installGui for $envId", e)
                 _guiStates.update { it + (envId to GuiState.FAILED) }
                 _errorMessage.tryEmit("GUI installation error: ${e.message}")
+            }
+        }
+    }
+
+    fun prepareAndStartInGuestGuiInstall(environment: Environment, onReady: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            guiInstaller.prepareInGuestGuiInstall(environment)
+            withContext(Dispatchers.Main) {
+                onReady()
             }
         }
     }

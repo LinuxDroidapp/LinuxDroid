@@ -131,6 +131,26 @@ bool DockModel::window_matches_app(const window::Window& win,
         }
     }
 
+    const std::string& pid_val = id.value();
+    if (pid_val == "terminal.desktop" || pid_val == "terminal") {
+        if (win_app == "terminal" || win_app == "x-terminal-emulator" || win_app == "xterm" ||
+            win_app == "xfce4-terminal" || win_app == "lxterminal" || win_app == "mate-terminal" ||
+            win_app == "gnome-terminal" || win_app == "alacritty" || win_app == "kitty") {
+            return true;
+        }
+    }
+    if (pid_val == "file-manager.desktop" || pid_val == "file-manager" || pid_val == "files") {
+        if (win_app == "pcmanfm" || win_app == "thunar" || win_app == "nautilus" ||
+            win_app == "nemo" || win_app == "dolphin" || win_app == "file-manager") {
+            return true;
+        }
+    }
+    if (pid_val == "trash.desktop" || pid_val == "trash") {
+        if (win.title().find("Trash") != std::string::npos || win_app == "trash") {
+            return true;
+        }
+    }
+
     return false;
 }
 
@@ -157,8 +177,26 @@ void DockModel::rebuild_items() {
             item.set_executable(meta->executable());
             item.set_available(true);
         } else {
-            item.set_name(pid.basename_without_extension());
-            item.set_available(false);
+            const std::string& pid_val = pid.value();
+            if (pid_val == "terminal.desktop" || pid_val == "terminal") {
+                item.set_name("Terminal");
+                item.set_icon_ref(application::ApplicationIconReference("utilities-terminal"));
+                item.set_executable("x-terminal-emulator");
+                item.set_available(true);
+            } else if (pid_val == "file-manager.desktop" || pid_val == "file-manager") {
+                item.set_name("File Manager");
+                item.set_icon_ref(application::ApplicationIconReference("system-file-manager"));
+                item.set_executable("pcmanfm");
+                item.set_available(true);
+            } else if (pid_val == "trash.desktop" || pid_val == "trash") {
+                item.set_name("Trash");
+                item.set_icon_ref(application::ApplicationIconReference("user-trash"));
+                item.set_executable("pcmanfm");
+                item.set_available(true);
+            } else {
+                item.set_name(pid.basename_without_extension());
+                item.set_available(false);
+            }
         }
 
         // Match running windows
