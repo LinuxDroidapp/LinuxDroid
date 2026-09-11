@@ -120,8 +120,8 @@ fi
 echo "[INFO] Guest ready"
 
 START_MODE="§{LINUXDROID_START_MODE:-}"
-if [ -z "§START_MODE" ]; then
-    if [ "§1" = "GUI" ] || [ "§1" = "CLI" ]; then
+if [ "§1" = "GUI" ] || [ "§1" = "CLI" ]; then
+    if [ -z "§START_MODE" ] || [ "§START_MODE" = "§1" ]; then
         START_MODE="§1"
         shift
     fi
@@ -147,20 +147,34 @@ case "§START_MODE" in
         fi
         ;;
     CLI)
-        echo "[GUEST-INIT] Starting CLI session" >&2
-        if [ §# -gt 0 ] && [ "§1" != "CLI" ]; then
-            init_log "Handing over to CLI workload: §1"
+        clear 2>/dev/null || printf '\033[H\033[2J' 2>/dev/null || true
+        USER_SHELL=""
+        if command -v getent >/dev/null 2>&1 && [ -n "§USER" ]; then
+            USER_SHELL="§(getent passwd "§USER" 2>/dev/null | cut -d: -f7 || true)"
+        elif [ -f /etc/passwd ] && [ -n "§USER" ]; then
+            USER_SHELL="§(grep "^§{USER}:" /etc/passwd 2>/dev/null | head -n1 | cut -d: -f7 || true)"
+        fi
+        if [ -z "§USER_SHELL" ] || [ ! -x "§USER_SHELL" ] || [ "§USER_SHELL" = "/bin/false" ] || [ "§USER_SHELL" = "/usr/sbin/nologin" ]; then
+            USER_SHELL="§{SHELL:-}"
+        fi
+        if [ -z "§USER_SHELL" ] || [ ! -x "§USER_SHELL" ] || [ "§USER_SHELL" = "/bin/false" ] || [ "§USER_SHELL" = "/usr/sbin/nologin" ]; then
+            if [ -x /bin/bash ]; then
+                USER_SHELL="/bin/bash"
+            elif [ -x /usr/bin/bash ]; then
+                USER_SHELL="/usr/bin/bash"
+            elif [ -x /bin/sh ]; then
+                USER_SHELL="/bin/sh"
+            else
+                USER_SHELL="/usr/bin/sh"
+            fi
+        fi
+        export SHELL="§USER_SHELL"
+        if [ §# -gt 0 ] && [ "§1" != "CLI" ] && [ "§1" != "/bin/bash" ] && [ "§1" != "/usr/bin/bash" ] && [ "§1" != "/bin/sh" ] && [ "§1" != "/usr/bin/sh" ] && [ "§1" != "§USER_SHELL" ]; then
+            exec "§@"
+        elif [ §# -gt 1 ]; then
             exec "§@"
         else
-            if [ -x /bin/bash ]; then
-                exec /bin/bash -l
-            elif [ -x /usr/bin/bash ]; then
-                exec /usr/bin/bash -l
-            elif [ -x /bin/sh ]; then
-                exec /bin/sh -l
-            else
-                exec "§SHELL" -l
-            fi
+            exec "§SHELL" -l
         fi
         ;;
     *)
