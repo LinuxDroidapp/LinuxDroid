@@ -139,7 +139,15 @@ bool GuiHost::start() {
 
     // Ensure XDG_RUNTIME_DIR exists and cleanup any stale socket/lock from previous ungraceful termination
     const char* env_xdg = getenv("XDG_RUNTIME_DIR");
-    std::string xdg_path = (env_xdg && strlen(env_xdg) > 0) ? env_xdg : "/tmp";
+    std::string xdg_path = (env_xdg && strlen(env_xdg) > 0) ? env_xdg : "";
+    if (xdg_path.empty()) {
+        const char* tmp = getenv("TMPDIR");
+        if (tmp && strlen(tmp) > 0) {
+            xdg_path = tmp;
+        } else {
+            xdg_path = "/tmp";
+        }
+    }
     setenv("XDG_RUNTIME_DIR", xdg_path.c_str(), 1);
     mkdir(xdg_path.c_str(), 0700);
 

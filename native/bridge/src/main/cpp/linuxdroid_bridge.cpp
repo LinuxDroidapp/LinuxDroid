@@ -528,6 +528,19 @@ Java_com_linuxdroid_native_1bridge_NativeBridge_nativeGetWaylandFoundationDetail
 }
 
 // ─── Native GUI Host Lifecycle ────────────────────────────────────────────────
+ 
+JNIEXPORT void JNICALL
+Java_com_linuxdroid_native_1bridge_NativeBridge_nativeSetXdgRuntimeDir(
+    JNIEnv* env, [[maybe_unused]] jclass clazz, jstring pathStr) {
+    if (pathStr == nullptr) return;
+    std::string path = jstringToString(env, pathStr);
+    if (!path.empty()) {
+        setenv("XDG_RUNTIME_DIR", path.c_str(), 1);
+        setenv("TMPDIR", path.c_str(), 1);
+        mkdir(path.c_str(), 0700);
+        LOGI("Native runtime directory set to: %s", path.c_str());
+    }
+}
 
 JNIEXPORT jboolean JNICALL
 Java_com_linuxdroid_native_1bridge_NativeBridge_nativeGuiStart(

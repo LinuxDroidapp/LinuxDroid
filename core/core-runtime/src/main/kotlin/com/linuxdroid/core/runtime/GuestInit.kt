@@ -94,6 +94,11 @@ export XDG_SESSION_TYPE="§{XDG_SESSION_TYPE:-wayland}"
 export XDG_CURRENT_DESKTOP="§{XDG_CURRENT_DESKTOP:-LDDE}"
 export XDG_SESSION_DESKTOP="§{XDG_SESSION_DESKTOP:-LDDE}"
 
+# Bridge host native Wayland socket (/tmp/wayland-0) into XDG_RUNTIME_DIR
+if [ -S "/tmp/§{WAYLAND_DISPLAY}" ] && [ ! -e "§{XDG_RUNTIME_DIR}/§{WAYLAND_DISPLAY}" ]; then
+    ln -sf "/tmp/§{WAYLAND_DISPLAY}" "§{XDG_RUNTIME_DIR}/§{WAYLAND_DISPLAY}" 2>/dev/null || true
+fi
+
 # Scrub Android host environment leakage if present
 unset ANDROID_ROOT ANDROID_DATA ANDROID_STORAGE ASEC_MOUNTPOINT BOOTCLASSPATH DEX2OATBOOTCLASSPATH EXTERNAL_STORAGE
 

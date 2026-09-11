@@ -203,6 +203,8 @@ class DefaultSessionManager(
             _sessions.value = sessionMap.toMap()
 
             val waylandSocket = "wayland-0"
+            val hostTmpDir = storage.tmpDir(environment.id).apply { mkdirs() }
+            guiHostController?.setXdgRuntimeDir(hostTmpDir.absolutePath)
             displayManager?.applyConfig(environment.configuration.display)
             guiHostController?.start()
 

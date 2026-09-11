@@ -108,12 +108,9 @@ target_include_directories(
     ${LIBWESTON_INC_DIRS}
 )
 
-# gl-renderer: pre-built Weston GLES renderer plugin artifact.
-# Source build removed: vendor/weston submodule has been retired.
-# Weston (and its gl-renderer plugin) is a Linux rootfs dependency supplied
-# by the Linux distribution package manager, not an Android project build target.
-# The pre-built libgl-renderer.so artifact resides in jniLibs and is packaged
-# into the APK via the standard jniLibs mechanism.
+# gl-renderer: Weston GLES renderer plugin artifact.
+# Built natively for Android arm64-v8a as part of the libweston-17 stack.
+# Resides in jniLibs/arm64-v8a and is packaged into the APK via the standard jniLibs mechanism.
 add_library(gl-renderer SHARED IMPORTED)
 set_target_properties(gl-renderer PROPERTIES IMPORTED_LOCATION ${ARM64_JNILIBS}/libgl-renderer.so)
 

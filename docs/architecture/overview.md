@@ -39,22 +39,25 @@ LinuxDroid is **NOT** a VM product, does **NOT** require root/su access, does **
 │ Bindings · ProcessLauncher · PtyLauncher               │
 └───────────────────────────┬────────────────────────────┘
 ┌───────────────────────────▼────────────────────────────┐
-│        LinuxDroid Native & Submodule Stack (vendor/)   │
+│        LinuxDroid Native & Vendored Stack (vendor/)    │
 │   • vendor/proot (PRoot engine, loader, Android fixes) │
 │   • vendor/LDDM (LinuxDroid Display Manager)           │
 │   • vendor/LDDE (LinuxDroid Desktop Environment)       │
+│   • Host Compositor: embedded libweston-17 (GuiHost)   │
+│   • Native libs: libwayland, libpixman-1 (NEON), DRM   │
 └───────────────────────────┬────────────────────────────┘
                             │ ptrace / syscall interception
 ┌───────────────────────────▼────────────────────────────┐
 │    Persistent Linux rootfs and applications            │
 │    (/bin/sh, apt, dpkg, Debian arm64)                  │
-│    • Wayland  (libwayland — Linux APT package)         │
-│    • Weston   (libweston-17 — Linux APT package)       │
-│    • Pixman   (libpixman-1 — Linux APT package)        │
+│    • /tmp/wayland-0 (Wayland compositor socket)        │
+│    • /usr/bin/lddm  (Supervises LDDE session)          │
+│    • /usr/bin/ldde  (Desktop environment)              │
+│    • Wayland client apps (terminals, desktop tools)    │
 └────────────────────────────────────────────────────────┘
 ```
 
-LinuxDroid-owned components (PRoot, LDDM, LDDE) are maintained as Git submodules in `vendor/`. Wayland, Weston, and Pixman are supplied by the Linux distribution package manager inside the rootfs — they are not Android project submodules. For detailed submodule specifications, see [docs/vendor/submodules.md](../vendor/submodules.md).
+LinuxDroid-owned components (PRoot, LDDM, LDDE) are directly vendored in `vendor/`. The single production compositor is host-embedded **libweston-17** executing inside Android host `GuiHost`. Embedded libweston-17, Wayland server/client, Pixman (NEON accelerated), and support libraries are built from source natively for Android `arm64-v8a` with 16 KB page alignment and packaged into `app/src/main/jniLibs/arm64-v8a/`. The guest rootfs consumes the native compositor socket via PRoot `/tmp/wayland-0` mount. For detailed specifications, see [docs/vendor/submodules.md](../vendor/submodules.md).
 
 
 ## 3. Key Design Tenets

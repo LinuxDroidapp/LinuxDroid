@@ -1,97 +1,55 @@
-# LinuxDroid Core Stack — Git Submodules Specification
+# LinuxDroid Core Stack — Vendored Components Specification
 
-LinuxDroid consumes its core native components directly from dedicated, maintained repositories integrated as Git submodules under `vendor/`.
+LinuxDroid integrates its core components directly under `vendor/` as vendored source trees.
 
-This architecture guarantees reproducible builds, source ownership, hermetic native toolchains, and strict isolation between host Android runtime and guest Linux environments.
+This architecture guarantees reproducible builds, source ownership, hermetic native toolchains, 16 KB ELF page alignment, and strict isolation between host Android runtime and guest Linux environments.
 
 ---
 
-## 1. Submodule Registry & Pinned Revisions
+## 1. Vendored Components Registry & Revisions
 
-Every LinuxDroid-owned component is strictly pinned to an authoritative commit SHA in `.gitmodules` and the Git index. Builds never track floating branches.
+Every LinuxDroid-owned component is maintained under `vendor/`:
 
-| Component | Repository URL | Vendor Path | Pinned Commit SHA | Primary Role in Stack |
+| Component | Source Repository | Vendor Path | Pinned Commit SHA | Primary Role in Stack |
 | :--- | :--- | :--- | :--- | :--- |
-| **PRoot** | `https://github.com/LinuxDroidapp/proot` | `vendor/proot` | `caadcae0e7697ec29f02e231a3a88866561aacd0` | User-space chroot/bind virtualization, syscall emulation, ptrace & seccomp sandboxing |
-| **LDDM** | `https://github.com/LinuxDroidapp/LDDM` | `vendor/LDDM` | `aa6c3d38f874244bcd60162889a914637e4ddf46` | LinuxDroid Display Manager (Wayland login greeter and session manager) |
-| **LDDE** | `https://github.com/LinuxDroidapp/LDDE` | `vendor/LDDE` | `9ee575e963d6d1ff4086fc16fb119daf6ead6db2` | LinuxDroid Desktop Environment (lightweight graphical shell and workspace) |
+| **PRoot** | `https://github.com/LinuxDroidapp/proot` | `vendor/proot` | `caadcae0e7697ec29f02e231a3a88866561aacd0` | User-space rootless virtualization, syscall emulation, ptrace & seccomp sandboxing |
+| **LDDM** | `https://github.com/LinuxDroidapp/LDDM` | `vendor/LDDM` | `aa6c3d38f874244bcd60162889a914637e4ddf46` | LinuxDroid Display Manager (Supervises LDDE against native host compositor) |
+| **LDDE** | `https://github.com/LinuxDroidapp/LDDE` | `vendor/LDDE` | `9ee575e963d6d1ff4086fc16fb119daf6ead6db2` | LinuxDroid Desktop Environment (Wayland graphical shell and desktop workspace) |
 
 ---
 
-## 2. Linux Rootfs Package Dependencies (Not Submodules)
+## 2. Host Embedded Compositor Stack (Built from Source)
 
-Wayland, Weston, wayland-protocols, and Pixman are **Linux distribution package dependencies**. They are installed inside the Linux rootfs by the `linux/bootstrap` deployment pipeline and are not Android project Git submodules.
+The single production compositor is host-side embedded **libweston-17** executing within `GuiHost`. Embedded Weston, Wayland, and Pixman are cross-compiled directly from source for Android `arm64-v8a` with 16 KB page alignment using `native/weston/build_wayland_stack.sh`:
 
-| Component | Package | Provider |
-| :--- | :--- | :--- |
-| Wayland | `libwayland-dev` | Linux distribution (Debian/Ubuntu APT) |
-| Weston | `weston` | Linux distribution (Debian/Ubuntu APT) |
-| Wayland Protocols | `wayland-protocols` | Linux distribution (Debian/Ubuntu APT) |
-| Pixman | `libpixman-1-dev` | Linux distribution (Debian/Ubuntu APT) |
+| Component | Repository / Upstream | Target ABI | Role |
+| :--- | :--- | :--- | :--- |
+| **libweston-17** | `https://gitlab.freedesktop.org/wayland/weston.git` | `arm64-v8a` (Android NDK) | Embedded Wayland compositor |
+| **libwayland-server / client** | `https://gitlab.freedesktop.org/wayland/wayland.git` | `arm64-v8a` (Android NDK) | Core Wayland IPC protocol libraries |
+| **libpixman-1** | `https://gitlab.freedesktop.org/pixman/pixman.git` | `arm64-v8a` (Android NDK) | Pixel manipulation (NEON accelerated) |
+| **libdrm** | `https://gitlab.freedesktop.org/mesa/drm.git` | `arm64-v8a` (Android NDK) | DRM format helpers |
+| **libxkbcommon** | `https://github.com/xkbcommon/libxkbcommon.git` | `arm64-v8a` (Android NDK) | Keyboard layout & translation engine |
+| **libffi** | `https://github.com/libffi/libffi.git` | `arm64-v8a` (Android NDK) | Foreign function interface |
 
-Pre-built `.so` artifacts (`libweston-17.so`, `libwayland-*.so`, `libpixman-1.so`) remain in `app/src/main/jniLibs/arm64-v8a/` for use by the Android bridge library (`native/bridge`). These are static artifacts — they are not rebuilt from source during the Android project build.
-
----
-
-## 3. Cloning & Initializing
-
-To clone the repository with all submodules initialized:
-
-```bash
-git clone --recurse-submodules https://github.com/LinuxDroidapp/LinuxDroid.git
-cd LinuxDroid
-```
-
-For an existing checkout where submodules have not yet been checked out:
-
-```bash
-git submodule update --init --recursive
-```
-
-To verify that all submodules match their expected pinned commits without dirty modifications:
-
-```bash
-git submodule status
-```
+All compiled shared libraries reside in `app/src/main/jniLibs/arm64-v8a/` and are packaged into the Android application.
 
 ---
 
-## 4. Integration & Build Architecture
+## 3. Component Build & Packaging Pipeline
 
-### 4.1 Strict Source Tree Isolation
-- Submodule repositories inside `vendor/*` are maintained as clean, unmodified source trees.
-- Build systems (CMake, NDK) must not write build artifacts, generated headers, or in-place patches into `vendor/*`.
+1. **PRoot & Loader**: Built by `scripts/build-proot.sh` using NDK r29 CMake. Generates `MANIFEST.txt` and stages to `app/src/main/assets/proot/arm64-v8a/` and `app/src/main/jniLibs/arm64-v8a/`.
+2. **Wayland & Weston Stack**: Built by `native/weston/build_wayland_stack.sh` using Meson cross-compilation with NDK r29 Clang. Enforces `-Wl,-z,max-page-size=16384`.
+3. **LDDM & LDDE Debian Packages**: Cross-compiled by `scripts/build-packages.sh` for `arm64` Linux using `aarch64-linux-gnu-gcc` and packaged via `dpkg-deb` into `app/src/main/assets/packages/`.
+4. **Master Orchestrator**: `scripts/build-runtime.sh` runs all builds, stages to `build/linuxdroid/`, and executes `scripts/validate-artifacts.sh`.
 
-### 4.2 PRoot Android/ARM64 Patch Baseline
-The pinned PRoot revision (`caadcae0e7697ec29f02e231a3a88866561aacd0`) incorporates essential Android compatibility modifications:
+---
+
+## 4. PRoot Android/ARM64 Compatibility Baseline
+
+The vendored PRoot revision incorporates essential Android compatibility modifications:
 - `PTRACE_PEEKDATA` memory read workaround for Bionic ptrace behavior.
 - ARM64 Top-Byte-Ignore (TBI) pointer handling in syscall translation.
 - Seccomp exit `SIGSYS` trap handler and graceful fallback.
 - Guest syscall translation for Android kernel sandboxing.
 - Ashmem-backed emulation for SYSV IPC shared memory.
-
----
-
-## 5. Submodule Maintenance Workflow
-
-When updating a submodule to a new upstream release or bug fix commit:
-
-1. **Navigate to Submodule Directory**:
-   ```bash
-   cd vendor/<component>
-   git fetch origin
-   git checkout <target-commit-sha>
-   ```
-
-2. **Verify Compatibility**:
-   - Run automated unit and integration tests.
-
-3. **Record Updated Provenance**:
-   - Update `app/src/main/assets/components_provenance.json`.
-
-4. **Commit Submodule Reference in LinuxDroid**:
-   ```bash
-   cd /workspaces/LinuxDroid
-   git add vendor/<component> app/src/main/assets/components_provenance.json
-   git commit -m "chore(vendor): bump <component> to <target-commit-sha>"
-   ```
+- 16 KB ELF page alignment (`-Wl,-z,max-page-size=16384`) for Android 16+ compatibility.

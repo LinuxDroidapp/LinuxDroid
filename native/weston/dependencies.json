@@ -2,9 +2,9 @@
   "manifest_version": "1.0.0",
   "target_abi": "arm64-v8a",
   "target_arch": "aarch64",
-  "min_android_api": 35,
-  "target_android_api": 36,
-  "libweston_major_api": 16,
+  "min_android_api": 36,
+  "target_android_api": 37,
+  "libweston_major_api": 17,
   "dependencies": {
     "proot": {
       "name": "proot",
@@ -61,8 +61,8 @@
         "-Dtests=false"
       ],
       "runtime_library": "libwayland-server.so",
-      "source": "linux_distribution",
-      "note": "Supplied by Linux rootfs package manager. Not an Android project source dependency."
+      "source": "source",
+      "note": "Built natively for Android arm64-v8a via native/weston/build_wayland_stack.sh and packaged into jniLibs/arm64-v8a."
     },
     "wayland-protocols": {
       "name": "wayland-protocols",
@@ -75,8 +75,8 @@
         "-Dtests=false"
       ],
       "runtime_library": null,
-      "source": "linux_distribution",
-      "note": "Supplied by Linux rootfs package manager. Not an Android project source dependency."
+      "source": "source",
+      "note": "Built natively via native/weston/build_wayland_stack.sh to generate protocol headers for Android native compositor."
     },
     "pixman": {
       "name": "pixman",
@@ -91,8 +91,8 @@
         "-Dtests=disabled"
       ],
       "runtime_library": "libpixman-1.so",
-      "source": "linux_distribution",
-      "note": "Supplied by Linux rootfs package manager. Not an Android project source dependency."
+      "source": "source",
+      "note": "Built natively for Android arm64-v8a with NEON acceleration via native/weston/build_wayland_stack.sh and packaged into jniLibs/arm64-v8a."
     },
     "libxkbcommon": {
       "name": "libxkbcommon",
@@ -186,8 +186,8 @@
         "-Dperfetto=false"
       ],
       "runtime_library": "libweston-17.so",
-      "source": "linux_distribution",
-      "note": "Supplied by Linux rootfs package manager. Not an Android project source dependency."
+      "source": "source",
+      "note": "Built natively for Android arm64-v8a via native/weston/build_wayland_stack.sh as embedded libweston-17 compositor."
     }
   }
 }

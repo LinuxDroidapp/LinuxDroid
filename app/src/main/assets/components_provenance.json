@@ -13,7 +13,7 @@
       "version": "0.1.0",
       "architecture": "arm64",
       "package_file": "linuxdroid-display-manager_0.1.0_arm64.deb",
-      "sha256": "d8d748921bf019831f268c050b086ae28584be7f4050d7d61ab83cace71de88d"
+      "sha256": "9161e54a82db5f3922de689862e864124db1ab64ea670a168a3434394f35b744"
     },
     "LDDE": {
       "repository": "LinuxDroidapp/LDDE",
@@ -21,7 +21,7 @@
       "version": "1.0.0",
       "architecture": "arm64",
       "package_file": "linuxdroid-desktop-environment_1.0.0_arm64.deb",
-      "sha256": "5f8f217e897142bd4806f3f0bb7b0acd64bf267b26c432e252c1b322fe56ec6f"
+      "sha256": "0144e680484de136eefdbbc606ba4c07aefd78c398202a83da93e08c3be40ae8"
     },
     "Weston": {
       "repository": "https://gitlab.freedesktop.org/wayland/weston.git",

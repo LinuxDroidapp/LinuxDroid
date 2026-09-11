@@ -30,6 +30,14 @@ class GuiHostController(
     }
 
     /**
+     * Sets the XDG runtime directory where the native Wayland compositor creates its socket.
+     */
+    fun setXdgRuntimeDir(path: String) {
+        log.info("Setting native GUI host runtime directory to $path")
+        bridge.setXdgRuntimeDir(path)
+    }
+
+    /**
      * Starts the native GUI host.
      * Idempotent: safe to call repeatedly.
      * Returns true if the host is RUNNING, false on initialization failure.

@@ -1,9 +1,7 @@
 LinuxDroid-PRoot v5.1.107.92
-commit:  24b2d423716973cb8910ea499e6ed35d6c55f5aa
+commit:  caadcae0e7697ec29f02e231a3a88866561aacd0
 ABI:     arm64-v8a
 arch:    aarch64
 sha256:
-  proot:              a4b97d01570547129f7dc0be14a7dd8f0c9bc80455739b3465de7457613312d4
-  loader:             3e14ec361b9e38189a78942ea23bf2f8a31b6004bbaa30cb61ee87f036d6c9c7
-  libproot.so:        a4b97d01570547129f7dc0be14a7dd8f0c9bc80455739b3465de7457613312d4
-  libproot_loader.so: 3e14ec361b9e38189a78942ea23bf2f8a31b6004bbaa30cb61ee87f036d6c9c7
+  proot:    f55bf0dd9b6fd4d52bab93dc7195603592321ee247e293acca19e93e7696e167
+  loader:   ecba68c881f972686113f94c44261b569737daa7da6b90efb0ebe70cb9b7fa79

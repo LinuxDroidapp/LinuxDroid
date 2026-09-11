@@ -36,8 +36,16 @@ struct linuxdroid_gl_renderbuffer {
     struct wl_list link;
 };
 
+#include <libweston/version.h>
+
+static_assert((WESTON_VERSION_MAJOR == 16 && WESTON_VERSION_MICRO >= 90) || WESTON_VERSION_MAJOR >= 17,
+    "LinuxDroid native backend requires libweston-17 (built from upstream Weston main branch)");
 static_assert(sizeof(void *) == 8, "LinuxDroid native bridge requires 64-bit arm64-v8a ABI");
 static_assert(offsetof(struct linuxdroid_gl_renderbuffer, output) == 0, "linuxdroid_gl_renderbuffer: output must be at offset 0");
+static_assert(offsetof(struct linuxdroid_gl_renderbuffer, type) == 8, "linuxdroid_gl_renderbuffer: type must be at offset 8");
+static_assert(offsetof(struct linuxdroid_gl_renderbuffer, damage) == 16, "linuxdroid_gl_renderbuffer: damage must be at offset 16");
+static_assert(offsetof(struct linuxdroid_gl_renderbuffer, border_status) == 40, "linuxdroid_gl_renderbuffer: border_status must be at offset 40");
+static_assert(offsetof(struct linuxdroid_gl_renderbuffer, fb) == 48, "linuxdroid_gl_renderbuffer: fb must be at offset 48");
 static_assert(offsetof(struct linuxdroid_gl_renderbuffer, link) > offsetof(struct linuxdroid_gl_renderbuffer, fb), "linuxdroid_gl_renderbuffer: link must be after fb");
 static_assert(sizeof(struct linuxdroid_gl_renderbuffer) >= 48, "linuxdroid_gl_renderbuffer: size must be at least 48 bytes");
 

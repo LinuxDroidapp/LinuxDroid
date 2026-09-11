@@ -4,6 +4,8 @@
 #include "lddm/platform/clock.hpp"
 
 #include <filesystem>
+#include <thread>
+#include <vector>
 #include <sys/stat.h>
 
 namespace lddm::weston {
@@ -255,26 +257,68 @@ Result<void> WestonManager::start() {
     // Unlock mutex while waiting for socket readiness to prevent deadlock
     auto socket_path_copy = socket_path_;
     auto timeout_copy = spec_.startup_timeout.count() > 0 ? spec_.startup_timeout : std::chrono::milliseconds(10000);
+    auto wayland_disp_copy = wayland_display_;
     lock.unlock();
 
     // Check socket readiness with pid = -1 (native compositor runs in Android host process, not child process)
-    auto ready_res = WestonReadinessDetector::wait_for_readiness(
-        socket_path_copy, -1, timeout_copy);
+    // Probe candidates: designated session socket, /tmp socket, /run/user socket, and XDG_RUNTIME_DIR
+    std::vector<std::string> candidates = {
+        socket_path_copy,
+        "/tmp/" + wayland_disp_copy,
+        "/run/user/1000/" + wayland_disp_copy,
+        "/run/user/0/" + wayland_disp_copy
+    };
+    if (const char* xdg = getenv("XDG_RUNTIME_DIR")) {
+        candidates.push_back((std::filesystem::path(xdg) / wayland_disp_copy).string());
+    }
 
-    lock.lock();
+    std::string active_socket;
+    auto deadline = SystemClock::now() + timeout_copy;
+    bool found = false;
 
-    if (!ready_res.has_value()) {
+    while (SystemClock::now() < deadline) {
+        for (const auto& cand : candidates) {
+            auto status = WestonReadinessDetector::check_socket(cand, -1);
+            if (status == WaylandSocketStatus::WaylandConnectionUsable) {
+                active_socket = cand;
+                found = true;
+                break;
+            }
+        }
+        if (found) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    if (!found) {
+        auto ready_res = WestonReadinessDetector::wait_for_readiness(
+            socket_path_copy, -1, std::chrono::milliseconds(100));
+        lock.lock();
         diagnostics_.record_error(ready_res.error());
         (void)transition_to(WestonState::Failed, "Native compositor readiness check failed: " + ready_res.error().message());
         cleanup_resources();
         return ready_res;
     }
 
+    // If active socket is not socket_path_copy, establish a symlink so that
+    // LDDE and other session children can access it via socket_path_copy (in session runtime dir)
+    if (active_socket != socket_path_copy) {
+        std::error_code ec;
+        std::filesystem::create_directories(std::filesystem::path(socket_path_copy).parent_path(), ec);
+        std::filesystem::remove(socket_path_copy, ec);
+        std::filesystem::create_symlink(active_socket, socket_path_copy, ec);
+        if (!ec) {
+            LDDM_LOG_INFO(LogSubsystem::WESTON, "Bridged session socket {} -> {}", socket_path_copy, active_socket);
+        }
+    }
+
+    lock.lock();
     (void)transition_to(WestonState::Running, "Native Wayland socket verified ready");
     diagnostics_.record_ready_time();
 
     LDDM_LOG_INFO(LogSubsystem::WESTON, "[INFO] Weston ready");
-    LDDM_LOG_INFO(LogSubsystem::WESTON, "Native compositor ready (Socket: {})", socket_path_);
+    LDDM_LOG_INFO(LogSubsystem::WESTON, "Native compositor ready (Socket: {}, Active: {})", socket_path_, active_socket);
 
     return Result<void>::success();
 }

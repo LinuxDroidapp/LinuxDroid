@@ -420,16 +420,16 @@ class RootfsDeploymentManagerTest {
     }
 
     // =========================================================================
-    // TEST 5: Missing Weston Dependency
+    // TEST 5: Guest Weston Not Required (Embedded Host libweston-17)
     // =========================================================================
     @Test
-    fun `TEST 5 - Missing Weston dependency fails validation and deployment`() {
+    fun `TEST 5 - Guest Weston is not required with native embedded compositor`() {
         val rootfsDir = tempFolder.newFolder("no-weston-rootfs")
         populateMockRootfs(rootfsDir, withWayland = true, withWeston = false, withLddm = true, withLdde = true)
 
         val report = validator.validate(rootfsDir, Distribution.DEBIAN, Architecture.ARM64, requireGraphicalStack = true)
-        assertThat(report.isValid).isFalse()
-        assertThat(report.errors.any { it.contains("Weston compositor") }).isTrue()
+        assertThat(report.isValid).isTrue()
+        assertThat(report.checks.any { it.name == "weston_executable" && it.passed }).isTrue()
     }
 
     // =========================================================================

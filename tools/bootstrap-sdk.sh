@@ -501,11 +501,9 @@ if [[ "$INSTALL_NATIVE_TOOLS" == true ]]; then
     log_success "Native build tools installed."
 fi
 
-# NOTE: The native Wayland/Weston stack build (build_wayland_stack.sh) has been retired.
-# Weston, Wayland, and Pixman are Linux rootfs dependencies supplied by the Linux
-# distribution package manager. They are not Android project build targets.
-# Pre-built .so artifacts (libweston-17.so, libwayland-*.so, libpixman-1.so) remain
-# in app/src/main/jniLibs/arm64-v8a/ for the Android bridge library.
+# The native Wayland/Weston stack build (native/weston/build_wayland_stack.sh)
+# builds embedded libweston-17, Wayland server/client, and Pixman (NEON)
+# natively for Android arm64-v8a and packages them into app/src/main/jniLibs/arm64-v8a/.
 
 
 # Final Summary

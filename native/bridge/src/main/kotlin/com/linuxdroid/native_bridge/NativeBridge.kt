@@ -144,6 +144,15 @@ object NativeBridge {
     // ─── Native GUI Host Lifecycle ────────────────────────────────────────────────
 
     /**
+     * Sets the XDG runtime directory for the native GUI host.
+     */
+    fun setXdgRuntimeDir(path: String) {
+        if (isLoaded) {
+            try { nativeSetXdgRuntimeDir(path) } catch (_: UnsatisfiedLinkError) {}
+        }
+    }
+
+    /**
      * Starts the native GUI host worker thread and initializes the Wayland/Weston runtime.
      * Idempotent: repeated calls do not create duplicate workers.
      * Blocks the caller until RUNNING or FAILED, but runs the event loop on a dedicated worker thread.
@@ -305,6 +314,7 @@ object NativeBridge {
     @JvmStatic external fun nativeVerifyWaylandFoundation(): Boolean
     @JvmStatic external fun nativeGetWaylandFoundationDetails(): String
 
+    @JvmStatic external fun nativeSetXdgRuntimeDir(path: String)
     @JvmStatic external fun nativeGuiStart(): Boolean
     @JvmStatic external fun nativeGuiStop(): Boolean
     @JvmStatic external fun nativeGuiIsRunning(): Boolean
