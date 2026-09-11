@@ -696,6 +696,9 @@ private fun LinuxDesktopWorkspace(
     var isAltLatched by remember { mutableStateOf(false) }
     var isSuperLatched by remember { mutableStateOf(false) }
     var isShiftLatched by remember { mutableStateOf(false) }
+    var isCapsLockLatched by remember { mutableStateOf(false) }
+    var showKeyboardToolbar by remember { mutableStateOf(true) }
+    var selectedKeyCategory by remember { mutableStateOf(KeyCategory.NAV) }
 
     fun refreshActiveWindows() {
         val raw = NativeBridge.getActiveWindows()
@@ -900,6 +903,18 @@ private fun LinuxDesktopWorkspace(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 ) {
+                                    // Linux Virtual Keyboard Toolbar toggle
+                                    IconButton(
+                                        onClick = { showKeyboardToolbar = !showKeyboardToolbar },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Terminal,
+                                            contentDescription = "Toggle Linux Keys",
+                                            tint = if (showKeyboardToolbar) neuColors.primaryAccent else neuColors.textSecondary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                     // Soft Keyboard toggle
                                     IconButton(
                                         onClick = { surfaceViewRef?.toggleSoftKeyboard() },
@@ -965,50 +980,139 @@ private fun LinuxDesktopWorkspace(
                                 }
                             }
 
-                            // Modifier Key Bar (Horizontally scrollable)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 8.dp, vertical = 3.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ModifierPill(label = "ESC", isActive = false) {
-                                    surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_ESCAPE)
+                            if (showKeyboardToolbar) {
+                                // Row 1: Modifier & Common Key Bar (Horizontally scrollable)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Latchable Modifiers with visual indicators
+                                    ModifierPill(label = "Ctrl", isActive = isCtrlLatched) {
+                                        isCtrlLatched = surfaceViewRef?.toggleModifier(KeyEvent.KEYCODE_CTRL_LEFT) ?: !isCtrlLatched
+                                    }
+                                    ModifierPill(label = "Alt", isActive = isAltLatched) {
+                                        isAltLatched = surfaceViewRef?.toggleModifier(KeyEvent.KEYCODE_ALT_LEFT) ?: !isAltLatched
+                                    }
+                                    ModifierPill(label = "Super", isActive = isSuperLatched) {
+                                        isSuperLatched = surfaceViewRef?.toggleModifier(KeyEvent.KEYCODE_META_LEFT) ?: !isSuperLatched
+                                    }
+                                    ModifierPill(label = "Shift", isActive = isShiftLatched) {
+                                        isShiftLatched = surfaceViewRef?.toggleModifier(KeyEvent.KEYCODE_SHIFT_LEFT) ?: !isShiftLatched
+                                    }
+                                    ModifierPill(label = "Caps", isActive = isCapsLockLatched) {
+                                        isCapsLockLatched = surfaceViewRef?.toggleModifier(KeyEvent.KEYCODE_CAPS_LOCK) ?: !isCapsLockLatched
+                                    }
+
+                                    // Common Navigation & Editing Keys
+                                    ModifierPill(label = "ESC", isActive = false) {
+                                        surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_ESCAPE)
+                                    }
+                                    ModifierPill(label = "TAB", isActive = false) {
+                                        surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_TAB)
+                                    }
+                                    ModifierPill(label = "Enter", isActive = false) {
+                                        surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_ENTER)
+                                    }
+                                    ModifierPill(label = "⌫", isActive = false) {
+                                        surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_DEL)
+                                    }
+                                    ModifierPill(label = "Del", isActive = false) {
+                                        surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_FORWARD_DEL)
+                                    }
+
+                                    // Category Switchers
+                                    KeyCategory.entries.forEach { cat ->
+                                        ModifierPill(
+                                            label = cat.label,
+                                            isActive = selectedKeyCategory == cat,
+                                            isCategoryTab = true,
+                                        ) {
+                                            selectedKeyCategory = cat
+                                        }
+                                    }
                                 }
-                                ModifierPill(label = "TAB", isActive = false) {
-                                    surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_TAB)
-                                }
-                                ModifierPill(label = "Ctrl", isActive = isCtrlLatched) {
-                                    isCtrlLatched = surfaceViewRef?.toggleModifier(KeyEvent.KEYCODE_CTRL_LEFT) ?: !isCtrlLatched
-                                }
-                                ModifierPill(label = "Alt", isActive = isAltLatched) {
-                                    isAltLatched = surfaceViewRef?.toggleModifier(KeyEvent.KEYCODE_ALT_LEFT) ?: !isAltLatched
-                                }
-                                ModifierPill(label = "Super", isActive = isSuperLatched) {
-                                    isSuperLatched = surfaceViewRef?.toggleModifier(KeyEvent.KEYCODE_META_LEFT) ?: !isSuperLatched
-                                }
-                                ModifierPill(label = "Shift", isActive = isShiftLatched) {
-                                    isShiftLatched = surfaceViewRef?.toggleModifier(KeyEvent.KEYCODE_SHIFT_LEFT) ?: !isShiftLatched
-                                }
-                                ModifierPill(label = "←", isActive = false) {
-                                    surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_DPAD_LEFT)
-                                }
-                                ModifierPill(label = "↑", isActive = false) {
-                                    surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_DPAD_UP)
-                                }
-                                ModifierPill(label = "↓", isActive = false) {
-                                    surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_DPAD_DOWN)
-                                }
-                                ModifierPill(label = "→", isActive = false) {
-                                    surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_DPAD_RIGHT)
-                                }
-                                ModifierPill(label = "Home", isActive = false) {
-                                    surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_MOVE_HOME)
-                                }
-                                ModifierPill(label = "End", isActive = false) {
-                                    surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_MOVE_END)
+
+                                // Row 2: Category Key Bar (Horizontally scrollable)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    when (selectedKeyCategory) {
+                                        KeyCategory.NAV -> {
+                                            ModifierPill(label = "←", isActive = false) {
+                                                surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_DPAD_LEFT)
+                                            }
+                                            ModifierPill(label = "↑", isActive = false) {
+                                                surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_DPAD_UP)
+                                            }
+                                            ModifierPill(label = "↓", isActive = false) {
+                                                surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_DPAD_DOWN)
+                                            }
+                                            ModifierPill(label = "→", isActive = false) {
+                                                surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_DPAD_RIGHT)
+                                            }
+                                            ModifierPill(label = "Home", isActive = false) {
+                                                surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_MOVE_HOME)
+                                            }
+                                            ModifierPill(label = "End", isActive = false) {
+                                                surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_MOVE_END)
+                                            }
+                                            ModifierPill(label = "PgUp", isActive = false) {
+                                                surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_PAGE_UP)
+                                            }
+                                            ModifierPill(label = "PgDn", isActive = false) {
+                                                surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_PAGE_DOWN)
+                                            }
+                                            ModifierPill(label = "Ins", isActive = false) {
+                                                surfaceViewRef?.sendSingleKey(KeyEvent.KEYCODE_INSERT)
+                                            }
+                                        }
+                                        KeyCategory.FN -> {
+                                            val fKeys = listOf(
+                                                "F1" to KeyEvent.KEYCODE_F1,
+                                                "F2" to KeyEvent.KEYCODE_F2,
+                                                "F3" to KeyEvent.KEYCODE_F3,
+                                                "F4" to KeyEvent.KEYCODE_F4,
+                                                "F5" to KeyEvent.KEYCODE_F5,
+                                                "F6" to KeyEvent.KEYCODE_F6,
+                                                "F7" to KeyEvent.KEYCODE_F7,
+                                                "F8" to KeyEvent.KEYCODE_F8,
+                                                "F9" to KeyEvent.KEYCODE_F9,
+                                                "F10" to KeyEvent.KEYCODE_F10,
+                                                "F11" to KeyEvent.KEYCODE_F11,
+                                                "F12" to KeyEvent.KEYCODE_F12,
+                                            )
+                                            fKeys.forEach { (label, code) ->
+                                                ModifierPill(label = label, isActive = false) {
+                                                    surfaceViewRef?.sendSingleKey(code)
+                                                }
+                                            }
+                                        }
+                                        KeyCategory.SHORTCUTS -> {
+                                            val shortcuts = listOf(
+                                                "Ctrl+C" to KeyEvent.KEYCODE_C,
+                                                "Ctrl+D" to KeyEvent.KEYCODE_D,
+                                                "Ctrl+Z" to KeyEvent.KEYCODE_Z,
+                                                "Ctrl+L" to KeyEvent.KEYCODE_L,
+                                                "Ctrl+A" to KeyEvent.KEYCODE_A,
+                                                "Ctrl+X" to KeyEvent.KEYCODE_X,
+                                                "Ctrl+V" to KeyEvent.KEYCODE_V,
+                                            )
+                                            shortcuts.forEach { (label, code) ->
+                                                ModifierPill(label = label, isActive = false) {
+                                                    surfaceViewRef?.sendKeyCombination(KeyEvent.KEYCODE_CTRL_LEFT, code)
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1307,26 +1411,57 @@ private fun LinuxDesktopWorkspace(
     }
 }
 
+private enum class KeyCategory(val label: String) {
+    NAV("Nav / Edit"),
+    FN("F1-F12"),
+    SHORTCUTS("Shortcuts"),
+}
+
 @Composable
 private fun ModifierPill(
     label: String,
     isActive: Boolean,
-    onClick: () -> Unit
+    isCategoryTab: Boolean = false,
+    onClick: () -> Unit,
 ) {
     val neuColors = NeuTheme.colors
+    val bgColor = when {
+        isActive -> neuColors.primaryAccent
+        isCategoryTab -> neuColors.surfaceHighlight
+        else -> Color(0xFF2C3240)
+    }
+    val textColor = when {
+        isActive -> Color.White
+        isCategoryTab -> neuColors.primaryAccent
+        else -> neuColors.textSecondary
+    }
     Surface(
-        color = if (isActive) neuColors.primaryAccent else Color(0xFF2C3240),
+        color = bgColor,
         shape = RoundedCornerShape(6.dp),
+        border = if (isActive) androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)) else null,
         modifier = Modifier.clickable { onClick() }
     ) {
-        Text(
-            text = label,
-            fontFamily = SfMono,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (isActive) Color.White else neuColors.textSecondary,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            if (isActive) {
+                Box(
+                    modifier = Modifier
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                )
+            }
+            Text(
+                text = label,
+                fontFamily = SfMono,
+                fontSize = 11.sp,
+                fontWeight = if (isActive || isCategoryTab) FontWeight.Bold else FontWeight.Normal,
+                color = textColor,
+            )
+        }
     }
 }
 

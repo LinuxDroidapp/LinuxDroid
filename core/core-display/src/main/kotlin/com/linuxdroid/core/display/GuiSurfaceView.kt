@@ -426,6 +426,9 @@ class GuiSurfaceView @JvmOverloads constructor(
         if (activeModifiers.contains(KeyEvent.KEYCODE_META_LEFT) || activeModifiers.contains(KeyEvent.KEYCODE_META_RIGHT)) {
             meta = meta or KeyEvent.META_META_ON or KeyEvent.META_META_LEFT_ON
         }
+        if (activeModifiers.contains(KeyEvent.KEYCODE_CAPS_LOCK)) {
+            meta = meta or KeyEvent.META_CAPS_LOCK_ON
+        }
         return meta
     }
 
@@ -433,6 +436,25 @@ class GuiSurfaceView @JvmOverloads constructor(
         val meta = getCurrentMetaState()
         NativeBridge.sendKeyEvent(keyCode, true, meta, 0)
         NativeBridge.sendKeyEvent(keyCode, false, meta, 0)
+    }
+
+    fun sendKeyCombination(modifierKey: Int, keyCode: Int) {
+        val wasLatched = activeModifiers.contains(modifierKey)
+        if (!wasLatched) {
+            NativeBridge.sendKeyEvent(modifierKey, true, getCurrentMetaState(), 0)
+        }
+        val meta = getCurrentMetaState() or when (modifierKey) {
+            KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_CTRL_RIGHT -> KeyEvent.META_CTRL_ON
+            KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT -> KeyEvent.META_ALT_ON
+            KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT -> KeyEvent.META_SHIFT_ON
+            KeyEvent.KEYCODE_META_LEFT, KeyEvent.KEYCODE_META_RIGHT -> KeyEvent.META_META_ON
+            else -> 0
+        }
+        NativeBridge.sendKeyEvent(keyCode, true, meta, 0)
+        NativeBridge.sendKeyEvent(keyCode, false, meta, 0)
+        if (!wasLatched) {
+            NativeBridge.sendKeyEvent(modifierKey, false, getCurrentMetaState(), 0)
+        }
     }
 
     fun pasteText(text: String) {

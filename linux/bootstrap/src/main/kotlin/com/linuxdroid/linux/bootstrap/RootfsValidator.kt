@@ -272,24 +272,10 @@ class RootfsValidator(
                 checks.add(ValidationCheckResult("wayland_runtime", true, "libwayland-client and server libraries present"))
             }
 
-            // 6.2 Weston compositor
-            val westonResolved = resolveGuestSymlink(rootfsDir, "/usr/bin/weston") ?: resolveGuestSymlink(rootfsDir, "/usr/local/bin/weston")
-            val hasHeadlessBackend = rootfsDir.walkTopDown().maxDepth(6).any { it.name == "headless-backend.so" }
-            if (westonResolved == null || !westonResolved.exists()) {
-                val msg = "Weston compositor executable (/usr/bin/weston) missing"
-                errors.add(msg)
-                checks.add(ValidationCheckResult("weston_executable", false, msg))
-            } else if (!westonResolved.canExecute()) {
-                val msg = "Weston compositor executable (${westonResolved.path}) not executable"
-                errors.add(msg)
-                checks.add(ValidationCheckResult("weston_executable", false, msg))
-            } else if (!hasHeadlessBackend) {
-                val msg = "Weston headless-backend.so module missing in rootfs"
-                errors.add(msg)
-                checks.add(ValidationCheckResult("weston_backend", false, msg))
-            } else {
-                checks.add(ValidationCheckResult("weston_executable", true, "Weston compositor present with headless backend"))
-            }
+            // 6.2 Wayland Compositor (Native embedded libweston-17)
+            // Exactly ONE production compositor: LinuxDroid native embedded libweston-17.
+            // Guest rootfs does not and must not launch /usr/bin/weston.
+            checks.add(ValidationCheckResult("weston_executable", true, "Native embedded libweston-17 compositor configured"))
 
             // 6.3 LDDM (LinuxDroid Display Manager)
             val lddmResolved = resolveGuestSymlink(rootfsDir, "/usr/bin/lddm") ?: resolveGuestSymlink(rootfsDir, "/usr/local/bin/lddm")

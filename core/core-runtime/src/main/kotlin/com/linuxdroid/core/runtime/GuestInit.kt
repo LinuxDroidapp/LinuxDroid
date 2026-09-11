@@ -133,10 +133,7 @@ case "§START_MODE" in
     GUI)
         echo "[GUEST-INIT] Handing over to LDDM" >&2
         echo "[LDDM] Starting graphical session"
-        if [ §# -gt 0 ] && [ "§1" != "GUI" ]; then
-            init_log "Handing over to GUI workload: §1"
-            exec "§@"
-        elif [ -x /usr/bin/lddm ]; then
+        if [ -x /usr/bin/lddm ]; then
             exec /usr/bin/lddm
         elif [ -x /usr/local/bin/lddm ]; then
             exec /usr/local/bin/lddm

@@ -124,18 +124,12 @@ Result<void> WestonManager::initialize(const SessionContext& context) {
             });
     }
 
-    // Resolve Weston executable
-    auto res_exe = WestonExecutableResolver::resolve(config_.executable);
-    if (!res_exe.has_value()) {
-        diagnostics_.record_error(res_exe.error());
-        (void)transition_to(WestonState::Failed, "Executable resolution failed: " + res_exe.error().message());
-        return Result<void>::failure(res_exe.error());
-    }
-
-    config_.executable = res_exe.value();
+    // In the finalized architecture, the compositor is the native embedded libweston-17
+    // managed by LinuxDroid's GuiHost. We do not require or spawn /usr/bin/weston.
+    config_.executable = "native-embedded-libweston";
     diagnostics_.set_executable(config_.executable);
 
-    LDDM_LOG_INFO(LogSubsystem::WESTON, "Weston initialized: exe={}, socket={}, runtime_dir={}",
+    LDDM_LOG_INFO(LogSubsystem::WESTON, "Weston initialized for native compositor: exe={}, socket={}, runtime_dir={}",
                   config_.executable, socket_path_, runtime_dir_);
 
     return Result<void>::success();
@@ -171,25 +165,8 @@ Result<void> WestonManager::prepare() {
         chmod(runtime_dir_.c_str(), 0700);
     }
 
-    // Clean stale Wayland socket and lock file if inactive
-    if (!socket_path_.empty()) {
-        std::error_code ec;
-        if (std::filesystem::exists(socket_path_, ec)) {
-            auto status = WestonReadinessDetector::check_socket(socket_path_, -1);
-            if (status != WaylandSocketStatus::WaylandConnectionUsable) {
-                LDDM_LOG_WARN(LogSubsystem::WESTON, "Cleaning stale Wayland socket before startup: {}", socket_path_);
-                std::filesystem::remove(socket_path_, ec);
-            }
-        }
-        std::string lock_path = socket_path_ + ".lock";
-        if (std::filesystem::exists(lock_path, ec)) {
-            auto status = WestonReadinessDetector::check_socket(socket_path_, -1);
-            if (status != WaylandSocketStatus::WaylandConnectionUsable) {
-                LDDM_LOG_WARN(LogSubsystem::WESTON, "Cleaning stale Wayland lock before startup: {}", lock_path);
-                std::filesystem::remove(lock_path, ec);
-            }
-        }
-    }
+    // Note: In the finalized architecture, the Wayland socket is owned by the
+    // native embedded libweston-17 compositor in GuiHost. Do not remove or unlink it.
 
     if (!log_file_.empty()) {
         std::filesystem::path lp(log_file_);
@@ -265,79 +242,45 @@ Result<void> WestonManager::start() {
             "Cannot start Weston in state " + std::string(to_string(state_))));
     }
 
-    if (!supervisor_) {
-        auto err = Error(ErrorCategory::Compositor, ErrorCode::CompositorSpawnFailed,
-                         "Cannot start Weston without an attached ProcessSupervisor");
-        diagnostics_.record_error(err);
-        (void)transition_to(WestonState::Failed, err.message());
-        return Result<void>::failure(err);
-    }
-
-    auto tr = transition_to(WestonState::Starting, "Spawning Weston process");
+    auto tr = transition_to(WestonState::Starting, "Verifying native Wayland compositor readiness");
     if (!tr.has_value()) {
         return tr;
     }
 
-    // Convert WestonSpec to ProcessSpec
-    auto proc_spec = spec_.to_process_spec();
-    auto spawn_res = supervisor_->start_process(proc_spec);
-    if (!spawn_res.has_value()) {
-        diagnostics_.record_error(spawn_res.error());
-        (void)transition_to(WestonState::Failed, "Spawn failed: " + spawn_res.error().message());
-        return Result<void>::failure(Error(
-            ErrorCategory::Compositor,
-            ErrorCode::CompositorSpawnFailed,
-            "Failed to spawn Weston process: " + spawn_res.error().message()));
-    }
-
-    process_ = spawn_res.value();
-    process_handle_ = process_->handle();
-
-    diagnostics_.set_pid(process_->pid());
     diagnostics_.record_start_time();
 
-    LDDM_LOG_INFO(LogSubsystem::WESTON, "[INFO] Weston process started");
-    LDDM_LOG_INFO(LogSubsystem::WESTON, "[INFO] Waiting for Wayland readiness");
-
-    (void)transition_to(WestonState::WaitingReady, "Waiting for Wayland socket readiness");
+    LDDM_LOG_INFO(LogSubsystem::WESTON, "[INFO] Waiting for native Wayland compositor readiness");
+    (void)transition_to(WestonState::WaitingReady, "Waiting for native Wayland socket readiness");
 
     // Unlock mutex while waiting for socket readiness to prevent deadlock
     auto socket_path_copy = socket_path_;
-    auto pid_copy = process_->pid();
-    auto timeout_copy = spec_.startup_timeout;
+    auto timeout_copy = spec_.startup_timeout.count() > 0 ? spec_.startup_timeout : std::chrono::milliseconds(10000);
     lock.unlock();
 
+    // Check socket readiness with pid = -1 (native compositor runs in Android host process, not child process)
     auto ready_res = WestonReadinessDetector::wait_for_readiness(
-        socket_path_copy, pid_copy, timeout_copy);
+        socket_path_copy, -1, timeout_copy);
 
     lock.lock();
 
     if (!ready_res.has_value()) {
         diagnostics_.record_error(ready_res.error());
-        (void)transition_to(WestonState::Failed, "Readiness check failed: " + ready_res.error().message());
-
-        // Stop the failed process
-        if (process_handle_ && supervisor_) {
-            (void)supervisor_->stop_process(*process_handle_, std::chrono::milliseconds(1000));
-        }
-
+        (void)transition_to(WestonState::Failed, "Native compositor readiness check failed: " + ready_res.error().message());
         cleanup_resources();
         return ready_res;
     }
 
-    (void)transition_to(WestonState::Running, "Wayland socket verified ready");
+    (void)transition_to(WestonState::Running, "Native Wayland socket verified ready");
     diagnostics_.record_ready_time();
 
     LDDM_LOG_INFO(LogSubsystem::WESTON, "[INFO] Weston ready");
-    LDDM_LOG_INFO(LogSubsystem::WESTON, "Weston running (PID: {}, Socket: {})",
-                  process_->pid(), socket_path_);
+    LDDM_LOG_INFO(LogSubsystem::WESTON, "Native compositor ready (Socket: {})", socket_path_);
 
     return Result<void>::success();
 }
 
 Result<void> WestonManager::wait_until_ready(std::chrono::milliseconds timeout) {
     std::string socket_path_copy;
-    pid_t pid_copy = -1;
 
     {
         std::lock_guard lock(mutex_);
@@ -352,13 +295,12 @@ Result<void> WestonManager::wait_until_ready(std::chrono::milliseconds timeout) 
         }
 
         socket_path_copy = socket_path_;
-        pid_copy = process_ ? process_->pid() : -1;
         if (timeout == std::chrono::milliseconds(0)) {
             timeout = spec_.startup_timeout;
         }
     }
 
-    return WestonReadinessDetector::wait_for_readiness(socket_path_copy, pid_copy, timeout);
+    return WestonReadinessDetector::wait_for_readiness(socket_path_copy, -1, timeout);
 }
 
 Result<void> WestonManager::stop() {
@@ -381,12 +323,6 @@ Result<void> WestonManager::stop() {
     }
 
     (void)transition_to(WestonState::Stopping, "Weston shutdown requested");
-
-    if (supervisor_ && process_handle_) {
-        (void)supervisor_->stop_process(*process_handle_, spec_.shutdown_timeout);
-        process_handle_ = std::nullopt;
-        process_ = nullptr;
-    }
 
     cleanup_resources();
 
@@ -423,13 +359,7 @@ void WestonManager::on_process_event(const process::ProcessEvent& event) {
 }
 
 void WestonManager::cleanup_resources() noexcept {
-    // Unlink socket and lock file if they exist
-    if (!socket_path_.empty()) {
-        std::error_code ec;
-        std::filesystem::remove(socket_path_, ec);
-        std::filesystem::remove(socket_path_ + ".lock", ec);
-    }
-
+    // Note: Do not remove socket_path_ because it belongs to the host native compositor.
     // Remove auto-generated config
     if (!generated_config_path_.empty()) {
         std::error_code ec;
@@ -440,9 +370,6 @@ void WestonManager::cleanup_resources() noexcept {
 
 void WestonManager::reset() {
     std::lock_guard lock(mutex_);
-    if (process_handle_ && supervisor_) {
-        (void)supervisor_->stop_process(*process_handle_, std::chrono::milliseconds(1000));
-    }
     cleanup_resources();
     process_ = nullptr;
     process_handle_ = std::nullopt;

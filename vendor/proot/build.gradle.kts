@@ -7,8 +7,8 @@ plugins {
 
 android {
     namespace = "com.linuxdroid.proot"
-    compileSdk = 36
-    ndkVersion = "30.0.16138531"
+    compileSdk = 37
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         minSdk = 28

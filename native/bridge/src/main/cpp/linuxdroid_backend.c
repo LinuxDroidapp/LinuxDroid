@@ -36,6 +36,11 @@ struct linuxdroid_gl_renderbuffer {
     struct wl_list link;
 };
 
+static_assert(sizeof(void *) == 8, "LinuxDroid native bridge requires 64-bit arm64-v8a ABI");
+static_assert(offsetof(struct linuxdroid_gl_renderbuffer, output) == 0, "linuxdroid_gl_renderbuffer: output must be at offset 0");
+static_assert(offsetof(struct linuxdroid_gl_renderbuffer, link) > offsetof(struct linuxdroid_gl_renderbuffer, fb), "linuxdroid_gl_renderbuffer: link must be after fb");
+static_assert(sizeof(struct linuxdroid_gl_renderbuffer) >= 48, "linuxdroid_gl_renderbuffer: size must be at least 48 bytes");
+
 const struct pixel_format_info *
 pixel_format_get_info(uint32_t format);
 

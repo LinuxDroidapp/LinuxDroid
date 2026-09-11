@@ -180,36 +180,10 @@ WAYLAND_PACKAGES=(
 run_cmd "INSTALL_WAYLAND" "apt-get install -y <wayland_packages>" apt-get install -y "§{WAYLAND_PACKAGES[@]}"
 
 # -----------------------------------------------------------------------------
-# 5. Install Weston Compositor
-# -----------------------------------------------------------------------------
-run_cmd "INSTALL_WESTON" "apt-get install -y weston" apt-get install -y weston
-
-# -----------------------------------------------------------------------------
-# 6. Install Pixman
+# 5. Install Pixman & Graphics Dependencies
 # -----------------------------------------------------------------------------
 run_cmd "INSTALL_PIXMAN" "apt-get install -y libpixman-1-0 fonts-dejavu-core xwayland" \
     apt-get install -y libpixman-1-0 fonts-dejavu-core xwayland
-
-# -----------------------------------------------------------------------------
-# 7. Configure Weston
-# -----------------------------------------------------------------------------
-configure_weston_action() {
-    mkdir -p /etc/xdg/weston
-    if [ ! -f /etc/xdg/weston/weston.ini ]; then
-        cat << 'WESTON_INI_EOF' > /etc/xdg/weston/weston.ini
-[core]
-idle-time=0
-require-input=false
-backend=headless-backend.so
-
-[shell]
-locking=false
-WESTON_INI_EOF
-        chmod 0644 /etc/xdg/weston/weston.ini
-    fi
-}
-
-run_cmd "CONFIGURE_WESTON" "write default weston.ini" configure_weston_action
 
 # -----------------------------------------------------------------------------
 # 8. Install LDDM from staged .deb
@@ -286,11 +260,6 @@ validate_gui_action() {
         fi
     done
     §wayland_found || missing="§missing Wayland client library;"
-
-    # Weston binary
-    if [ ! -x /usr/bin/weston ] && ! command -v weston >/dev/null 2>&1; then
-        missing="§missing Weston compositor executable;"
-    fi
 
     # LDDM
     if [ ! -x /usr/bin/lddm ] && [ ! -x /usr/local/bin/lddm ]; then

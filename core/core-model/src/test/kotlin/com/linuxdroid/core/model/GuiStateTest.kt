@@ -11,16 +11,32 @@ class GuiStateTest {
         assertThat(GuiState.INSTALLING.displayName).isEqualTo("Installing GUI")
         assertThat(GuiState.INSTALLED.displayName).isEqualTo("Installed")
         assertThat(GuiState.REPAIRING.displayName).isEqualTo("Repairing GUI")
+        assertThat(GuiState.STARTING.displayName).isEqualTo("Starting GUI")
+        assertThat(GuiState.RUNNING.displayName).isEqualTo("GUI Running")
         assertThat(GuiState.FAILED.displayName).isEqualTo("Installation failed")
     }
 
     @Test
-    fun `isInstalled returns true only for INSTALLED`() {
+    fun `isInstalled returns true for INSTALLED, STARTING, and RUNNING`() {
         assertThat(GuiState.INSTALLED.isInstalled).isTrue()
+        assertThat(GuiState.STARTING.isInstalled).isTrue()
+        assertThat(GuiState.RUNNING.isInstalled).isTrue()
         assertThat(GuiState.NOT_INSTALLED.isInstalled).isFalse()
         assertThat(GuiState.INSTALLING.isInstalled).isFalse()
         assertThat(GuiState.REPAIRING.isInstalled).isFalse()
         assertThat(GuiState.FAILED.isInstalled).isFalse()
+    }
+
+    @Test
+    fun `isRunning and isStartingOrRunning return expected values`() {
+        assertThat(GuiState.RUNNING.isRunning).isTrue()
+        assertThat(GuiState.STARTING.isRunning).isFalse()
+        assertThat(GuiState.INSTALLED.isRunning).isFalse()
+
+        assertThat(GuiState.RUNNING.isStartingOrRunning).isTrue()
+        assertThat(GuiState.STARTING.isStartingOrRunning).isTrue()
+        assertThat(GuiState.INSTALLED.isStartingOrRunning).isFalse()
+        assertThat(GuiState.NOT_INSTALLED.isStartingOrRunning).isFalse()
     }
 
     @Test
@@ -30,6 +46,8 @@ class GuiStateTest {
         assertThat(GuiState.INSTALLED.needsInstall).isFalse()
         assertThat(GuiState.INSTALLING.needsInstall).isFalse()
         assertThat(GuiState.REPAIRING.needsInstall).isFalse()
+        assertThat(GuiState.STARTING.needsInstall).isFalse()
+        assertThat(GuiState.RUNNING.needsInstall).isFalse()
     }
 
     @Test
@@ -38,6 +56,8 @@ class GuiStateTest {
         assertThat(GuiState.REPAIRING.isInProgress).isTrue()
         assertThat(GuiState.NOT_INSTALLED.isInProgress).isFalse()
         assertThat(GuiState.INSTALLED.isInProgress).isFalse()
+        assertThat(GuiState.STARTING.isInProgress).isFalse()
+        assertThat(GuiState.RUNNING.isInProgress).isFalse()
         assertThat(GuiState.FAILED.isInProgress).isFalse()
     }
 
@@ -47,6 +67,8 @@ class GuiStateTest {
         assertThat(GuiState.fromString("installed")).isEqualTo(GuiState.INSTALLED)
         assertThat(GuiState.fromString("Installing")).isEqualTo(GuiState.INSTALLING)
         assertThat(GuiState.fromString("repairing")).isEqualTo(GuiState.REPAIRING)
+        assertThat(GuiState.fromString("STARTING")).isEqualTo(GuiState.STARTING)
+        assertThat(GuiState.fromString("running")).isEqualTo(GuiState.RUNNING)
         assertThat(GuiState.fromString("FAILED")).isEqualTo(GuiState.FAILED)
         assertThat(GuiState.fromString("not_installed")).isEqualTo(GuiState.NOT_INSTALLED)
     }

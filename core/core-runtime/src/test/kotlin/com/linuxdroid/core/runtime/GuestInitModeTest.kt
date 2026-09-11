@@ -21,6 +21,7 @@ class GuestInitModeTest {
         assertThat(script).contains("echo \"[GUEST-INIT] Handing over to LDDM\" >&2")
         assertThat(script).contains("echo \"[LDDM] Starting graphical session\"")
         assertThat(script).contains("/usr/bin/lddm")
+        assertThat(script).doesNotContain("Handing over to GUI workload:")
 
         // CLI branch
         assertThat(script).contains("echo \"[GUEST-INIT] Starting CLI session\" >&2")

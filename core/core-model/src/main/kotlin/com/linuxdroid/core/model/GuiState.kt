@@ -37,11 +37,23 @@ enum class GuiState(val displayName: String) {
     /** A GUI repair operation is currently in progress. */
     REPAIRING("Repairing GUI"),
 
+    /** Graphical session is currently starting. */
+    STARTING("Starting GUI"),
+
+    /** Graphical session is currently active and running. */
+    RUNNING("GUI Running"),
+
     /** The last GUI installation or repair attempt failed. CLI environment is unaffected. */
     FAILED("Installation failed");
 
     /** Returns true if the GUI is fully installed and ready to boot. */
-    val isInstalled: Boolean get() = this == INSTALLED
+    val isInstalled: Boolean get() = this == INSTALLED || this == STARTING || this == RUNNING
+
+    /** Returns true if GUI is currently active. */
+    val isRunning: Boolean get() = this == RUNNING
+
+    /** Returns true if GUI session is either starting or active. */
+    val isStartingOrRunning: Boolean get() = this == STARTING || this == RUNNING
 
     /** Returns true if GUI needs to be installed or reinstalled. */
     val needsInstall: Boolean get() = this == NOT_INSTALLED || this == FAILED

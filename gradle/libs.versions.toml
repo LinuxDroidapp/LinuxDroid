@@ -2,11 +2,11 @@
 # Android
 agp = "9.3.2"
 kotlin = "2.3.20"
-compileSdk = "36"
+compileSdk = "37"
 minSdk = "36"
-targetSdk = "36"
+targetSdk = "37"
 buildTools = "36.0.0"
-ndk = "30.0.16138531"
+ndk = "29.0.14206865"
 cmake = "4.4.3"
 
 # Jetpack / AndroidX
