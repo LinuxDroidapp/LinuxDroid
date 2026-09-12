@@ -451,7 +451,15 @@ class RootfsDeploymentManager(
                     arch = environment.architecture.linuxArch,
                 )
 
-                // 7. Best-effort in-guest CLI provisioning (safely executed, does not block ROOTFS_READY)
+                // 7. Stage LDDM and LDDE packages into /tmp/linuxdroid-packages/
+                stageDebPackages(
+                    finalRootfsDir = finalRootfsDir,
+                    environment = environment,
+                    lddmDebOverride = lddmDebOverride,
+                    lddeDebOverride = lddeDebOverride,
+                )
+
+                // 8. In-guest provisioning (installs CLI and LDDM/LDDE packages, safely executed, preserves CLI)
                 runCatching {
                     executeCliProvisioning(
                         environment = environment,
@@ -461,7 +469,7 @@ class RootfsDeploymentManager(
                         onLog = onLog,
                     )
                 }.onFailure { e ->
-                    log.warn("[DEPLOY_CLI_WARN] In-guest CLI package provisioning notice: ${e.message}. CLI foundation preserved.")
+                    log.warn("[DEPLOY_CLI_WARN] In-guest package provisioning notice: ${e.message}. CLI foundation preserved.")
                     onLog(">>> [SETUP] CLI base environment ready.")
                 }
 
@@ -513,6 +521,20 @@ class RootfsDeploymentManager(
                     } catch (e: Exception) {
                         log.warn("[DEPLOY_GUI_WARN] Optional GUI installation failed (CLI foundation preserved): ${e.message}")
                     }
+                }
+
+                if (lddmVersion == null) {
+                    lddmVersion = packageInstaller.getInstalledPackageVersion(finalRootfsDir, "linuxdroid-display-manager")
+                        ?: if (File(finalRootfsDir, "usr/bin/lddm").exists() || File(finalRootfsDir, "usr/local/bin/lddm").exists()) "0.1.0" else null
+                }
+                if (lddeVersion == null) {
+                    lddeVersion = packageInstaller.getInstalledPackageVersion(finalRootfsDir, "linuxdroid-desktop-environment")
+                        ?: if (File(finalRootfsDir, "usr/bin/ldde").exists() || File(finalRootfsDir, "usr/bin/ldde-session").exists()) "1.0.0" else null
+                }
+                if (lddmVersion != null && lddeVersion != null) {
+                    westonVersion = westonVersion ?: "distribution"
+                    waylandVersion = waylandVersion ?: "distribution"
+                    GuiInstallScript.writeGuiInstallCompleteMarker(finalRootfsDir)
                 }
 
                 // 9. Record manifest and ROOTFS_READY
@@ -624,6 +646,16 @@ class RootfsDeploymentManager(
         installLogger.logPostInstallStart("FINAL_VALIDATION")
         installLogger.logPostInstallSuccess("FINAL_VALIDATION", 10, 0)
 
+        val lddmDeb = packageInstaller.resolvePackageDeb("linuxdroid-display-manager", environment)
+        val lddeDeb = packageInstaller.resolvePackageDeb("linuxdroid-desktop-environment", environment)
+        if (lddmDeb != null && lddeDeb != null) {
+            runCatching {
+                packageInstaller.installLDDM(environment, finalRootfsDir, lddmDeb, onProgress, onLog)
+                packageInstaller.installLDDE(environment, finalRootfsDir, lddeDeb, onProgress, onLog)
+                GuiInstallScript.writeGuiInstallCompleteMarker(finalRootfsDir)
+            }
+        }
+
         val secretFile = File(finalRootfsDir, "etc/linuxdroid/.install.secret")
         if (secretFile.exists()) secretFile.delete()
 
@@ -635,6 +667,30 @@ class RootfsDeploymentManager(
             arch = environment.architecture.linuxArch,
         )
         onLog(">>> POST_INSTALL_COMPLETE")
+    }
+
+    private fun stageDebPackages(
+        finalRootfsDir: File,
+        environment: Environment,
+        lddmDebOverride: File? = null,
+        lddeDebOverride: File? = null,
+    ) {
+        val tmpPkgsDir = File(finalRootfsDir, "tmp/linuxdroid-packages").apply { mkdirs() }
+        val rootPkgsDir = File(finalRootfsDir, "root/linuxdroid/packages").apply { mkdirs() }
+
+        val lddmDeb = lddmDebOverride ?: packageInstaller.resolvePackageDeb("linuxdroid-display-manager", environment)
+        if (lddmDeb != null && lddmDeb.exists()) {
+            lddmDeb.copyTo(File(tmpPkgsDir, "linuxdroid-display-manager.deb"), overwrite = true)
+            lddmDeb.copyTo(File(tmpPkgsDir, lddmDeb.name), overwrite = true)
+            lddmDeb.copyTo(File(rootPkgsDir, lddmDeb.name), overwrite = true)
+        }
+
+        val lddeDeb = lddeDebOverride ?: packageInstaller.resolvePackageDeb("linuxdroid-desktop-environment", environment)
+        if (lddeDeb != null && lddeDeb.exists()) {
+            lddeDeb.copyTo(File(tmpPkgsDir, "linuxdroid-desktop-environment.deb"), overwrite = true)
+            lddeDeb.copyTo(File(tmpPkgsDir, lddeDeb.name), overwrite = true)
+            lddeDeb.copyTo(File(rootPkgsDir, lddeDeb.name), overwrite = true)
+        }
     }
 
     private suspend fun downloadFile(

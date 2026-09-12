@@ -303,7 +303,56 @@ SUDO_EOF
 run_cmd "CONFIGURE_SUDO" "configure sudoers for §USERNAME" configure_sudo_action
 
 # -----------------------------------------------------------------------------
-# 9. Strict APT Cleanup Sequence (autoremove -> clean -> update)
+# 9. Wayland & LinuxDroid GUI Packages (LDDM & LDDE)
+# -----------------------------------------------------------------------------
+install_gui_action() {
+    local gui_pkgs=(libwayland-client0 libwayland-server0 libwayland-cursor0 wayland-protocols libpixman-1-0 libxkbcommon0 xwayland)
+    apt-get install -y --no-install-recommends "§{gui_pkgs[@]}" 2>/dev/null || apt-get -f -y install 2>/dev/null || true
+
+    local lddm_deb="/tmp/linuxdroid-packages/linuxdroid-display-manager.deb"
+    local ldde_deb="/tmp/linuxdroid-packages/linuxdroid-desktop-environment.deb"
+    if [ ! -f "§lddm_deb" ] || [ ! -f "§ldde_deb" ]; then
+        for d in /tmp/linuxdroid-packages /root/linuxdroid/packages /root/.linuxdroid/packages; do
+            if [ -d "§d" ]; then
+                [ ! -f "§lddm_deb" ] && lddm_deb="§(find "§d" -maxdepth 2 -type f \( -name "*display-manager*.deb" -o -name "*lddm*.deb" \) 2>/dev/null | head -n 1 || true)"
+                [ ! -f "§ldde_deb" ] && ldde_deb="§(find "§d" -maxdepth 2 -type f \( -name "*desktop-environment*.deb" -o -name "*ldde*.deb" \) 2>/dev/null | head -n 1 || true)"
+            fi
+        done
+    fi
+
+    if [ -n "§lddm_deb" ] && [ -f "§lddm_deb" ] && [ -n "§ldde_deb" ] && [ -f "§ldde_deb" ]; then
+        apt-get install -y "§lddm_deb" "§ldde_deb" 2>/dev/null || {
+            apt-get --fix-broken install -y 2>/dev/null || true
+            apt-get install -y "§lddm_deb" "§ldde_deb" 2>/dev/null || true
+        }
+    fi
+
+    mkdir -p /etc/linuxdroid /run/lddm /run/ldde
+    cat > /etc/linuxdroid/lddm.conf << LDDM_EOF
+[lddm]
+weston_socket = wayland-0
+session_user = §USERNAME
+autostart = true
+session_dir = /run/lddm
+LDDM_EOF
+    chmod 0644 /etc/linuxdroid/lddm.conf
+
+    cat > /etc/linuxdroid/desktop.conf << LDDE_EOF
+[desktop]
+shell = default
+theme = default
+LDDE_EOF
+    chmod 0644 /etc/linuxdroid/desktop.conf
+
+    if [ -x /usr/bin/ldde ] && [ ! -e /usr/bin/ldde-session ]; then
+        ln -sf /usr/bin/ldde /usr/bin/ldde-session
+    fi
+}
+
+run_cmd "INSTALL_GUI_PACKAGES" "install Wayland and LinuxDroid packages (LDDM & LDDE)" install_gui_action || true
+
+# -----------------------------------------------------------------------------
+# 10. Strict APT Cleanup Sequence (autoremove -> clean -> update)
 # -----------------------------------------------------------------------------
 run_cmd "APT_AUTOREMOVE" "apt-get autoremove --purge -y" apt-get autoremove --purge -y
 run_cmd "APT_CLEAN" "apt-get clean" apt-get clean
@@ -364,7 +413,17 @@ RELEASE=§RELEASE
 ARCH=§ARCH
 USERNAME=§USERNAME
 GUI_INSTALLED=false
+if command -v lddm >/dev/null 2>&1 || [ -x /usr/bin/lddm ] || [ -x /usr/local/bin/lddm ]; then
+    if command -v ldde >/dev/null 2>&1 || [ -x /usr/bin/ldde ] || [ -x /usr/local/bin/ldde ]; then
+        GUI_INSTALLED=true
+    fi
+fi
 MARKER_EOF
+
+if [ "§GUI_INSTALLED" = "true" ]; then
+    sed -i 's/GUI_INSTALLED=false/GUI_INSTALLED=true/g' /etc/linuxdroid/POST_INSTALL_COMPLETE 2>/dev/null || true
+    cp -f /etc/linuxdroid/POST_INSTALL_COMPLETE /etc/linuxdroid/GUI_INSTALL_COMPLETE 2>/dev/null || true
+fi
 
 cat > /etc/linuxdroid/ROOTFS_READY << READY_EOF
 DISTRO=§DISTRO
@@ -372,8 +431,10 @@ RELEASE=§RELEASE
 ARCH=§ARCH
 USERNAME=§USERNAME
 READY_AT=§(date -u +"%Y-%m-%dT%H:%M:%SZ")
-GUI_INSTALLED=false
+GUI_INSTALLED=§GUI_INSTALLED
 READY_EOF
+
+cp -f /etc/linuxdroid/POST_INSTALL_COMPLETE /etc/linuxdroid/rootfs-ready 2>/dev/null || true
 
 echo "[POSTINSTALL][SUCCESS][POST_INSTALL]"
 echo "exit_code=0"

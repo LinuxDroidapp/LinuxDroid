@@ -212,35 +212,37 @@ log_pass "Wayland and GUI runtime dependencies installed."
 # 8. Install LinuxDroid Packages (LDDM & LDDE)
 # -----------------------------------------------------------------------------
 log_step "Locating staged LinuxDroid ARM64 Debian packages..."
-if [ ! -d "${PACKAGES_DIR}" ]; then
-    log_fatal "Staged packages directory '${PACKAGES_DIR}' not found!"
+LDDM_DEB="/tmp/linuxdroid-packages/linuxdroid-display-manager.deb"
+LDDE_DEB="/tmp/linuxdroid-packages/linuxdroid-desktop-environment.deb"
+
+if [ ! -f "${LDDM_DEB}" ] || [ ! -f "${LDDE_DEB}" ]; then
+    for pdir in /tmp/linuxdroid-packages "${PACKAGES_DIR}" /root/linuxdroid/packages; do
+        if [ -d "${pdir}" ]; then
+            [ ! -f "${LDDM_DEB}" ] && LDDM_DEB="$(find "${pdir}" -maxdepth 2 -type f \( -name "*display-manager*.deb" -o -name "*lddm*.deb" \) 2>/dev/null | head -n 1 || true)"
+            [ ! -f "${LDDE_DEB}" ] && LDDE_DEB="$(find "${pdir}" -maxdepth 2 -type f \( -name "*desktop-environment*.deb" -o -name "*ldde*.deb" \) 2>/dev/null | head -n 1 || true)"
+        fi
+    done
 fi
 
-LDDM_DEB="$(find "${PACKAGES_DIR}" -maxdepth 2 -type f \( -name "*display-manager*.deb" -o -name "*lddm*.deb" \) 2>/dev/null | head -n 1 || true)"
-LDDE_DEB="$(find "${PACKAGES_DIR}" -maxdepth 2 -type f \( -name "*desktop-environment*.deb" -o -name "*ldde*.deb" \) 2>/dev/null | head -n 1 || true)"
-
-if [ -z "${LDDM_DEB}" ] || [ ! -f "${LDDM_DEB}" ]; then
-    log_fatal "Missing LDDM package in '${PACKAGES_DIR}'."
+GUI_INSTALLED_OK=false
+if [ -n "${LDDM_DEB}" ] && [ -f "${LDDM_DEB}" ] && [ -n "${LDDE_DEB}" ] && [ -f "${LDDE_DEB}" ]; then
+    log_info "Installing LDDM & LDDE packages via APT..."
+    if apt-get install -y "${LDDM_DEB}" "${LDDE_DEB}"; then
+        log_pass "LDDM and LDDE packages installed successfully via APT."
+        GUI_INSTALLED_OK=true
+    else
+        log_warn "Initial APT package installation failed; attempting --fix-broken..."
+        apt-get --fix-broken install -y || true
+        if apt-get install -y "${LDDM_DEB}" "${LDDE_DEB}"; then
+            log_pass "LDDM and LDDE packages installed successfully after dependency repair."
+            GUI_INSTALLED_OK=true
+        else
+            log_warn "Failed to install LDDM/LDDE packages via APT. Preserving CLI environment."
+        fi
+    fi
+else
+    log_warn "LinuxDroid Debian packages (LDDM/LDDE) not found in staging. Preserving CLI environment."
 fi
-if [ -z "${LDDE_DEB}" ] || [ ! -f "${LDDE_DEB}" ]; then
-    log_fatal "Missing LDDE package in '${PACKAGES_DIR}'."
-fi
-
-log_info "Installing LDDM from $(basename "${LDDM_DEB}")..."
-apt-get install -y "${LDDM_DEB}" || {
-    log_warn "apt install failed for LDDM; repairing dependencies with apt-get --fix-broken..."
-    apt-get --fix-broken install -y
-    apt-get install -y "${LDDM_DEB}" || log_fatal "Failed to install LDDM package."
-}
-log_pass "LDDM installed successfully."
-
-log_info "Installing LDDE from $(basename "${LDDE_DEB}")..."
-apt-get install -y "${LDDE_DEB}" || {
-    log_warn "apt install failed for LDDE; repairing dependencies with apt-get --fix-broken..."
-    apt-get --fix-broken install -y
-    apt-get install -y "${LDDE_DEB}" || log_fatal "Failed to install LDDE package."
-}
-log_pass "LDDE installed successfully."
 
 # -----------------------------------------------------------------------------
 # 9. User and Environment Configuration
@@ -330,17 +332,21 @@ log_pass "Cleanup complete."
 # -----------------------------------------------------------------------------
 log_step "Verifying complete installation..."
 
-if ! command -v lddm >/dev/null 2>&1; then
-    log_fatal "Validation failed: 'lddm' binary is not in PATH or not executable."
+# Core CLI validation is mandatory
+if [ ! -x /bin/sh ] && [ ! -x /usr/bin/sh ]; then
+    log_fatal "Validation failed: shell (/bin/sh) missing."
 fi
-if ! command -v ldde >/dev/null 2>&1; then
-    log_fatal "Validation failed: 'ldde' binary is not in PATH or not executable."
+if [ ! -x /sbin/linuxdroid-init ]; then
+    log_fatal "Validation failed: /sbin/linuxdroid-init missing."
 fi
-if [ ! -f /etc/linuxdroid/lddm.conf ]; then
-    log_fatal "Validation failed: /etc/linuxdroid/lddm.conf was not created."
+
+HAS_LDDM=false
+HAS_LDDE=false
+if command -v lddm >/dev/null 2>&1 || [ -x /usr/bin/lddm ] || [ -x /usr/local/bin/lddm ]; then
+    HAS_LDDM=true
 fi
-if [ ! -f /etc/linuxdroid/desktop.conf ]; then
-    log_fatal "Validation failed: /etc/linuxdroid/desktop.conf was not created."
+if command -v ldde >/dev/null 2>&1 || [ -x /usr/bin/ldde ] || [ -x /usr/local/bin/ldde ]; then
+    HAS_LDDE=true
 fi
 
 # Create completion markers
@@ -351,15 +357,18 @@ DISTRO=${DISTRO_ID}
 CODENAME=${DISTRO_CODENAME}
 ARCH=${HOST_ARCH}
 USER=${TARGET_USER}
-LDDM_INSTALLED=true
-LDDE_INSTALLED=true
+LDDM_INSTALLED=${HAS_LDDM}
+LDDE_INSTALLED=${HAS_LDDE}
 EOF
 chmod 0644 "${COMPLETION_MARKER}"
 
 # Also create ROOTFS_READY and POST_INSTALL_COMPLETE for existing component compatibility
 cp -f "${COMPLETION_MARKER}" /etc/linuxdroid/ROOTFS_READY
 cp -f "${COMPLETION_MARKER}" /etc/linuxdroid/POST_INSTALL_COMPLETE
-cp -f "${COMPLETION_MARKER}" /etc/linuxdroid/GUI_INSTALL_COMPLETE
+
+if [ "${HAS_LDDM}" = true ] && [ "${HAS_LDDE}" = true ]; then
+    cp -f "${COMPLETION_MARKER}" /etc/linuxdroid/GUI_INSTALL_COMPLETE
+fi
 
 echo "STATE=ROOTFS_READY" > "${STATE_FILE}"
 echo "COMPLETED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "${STATE_FILE}"

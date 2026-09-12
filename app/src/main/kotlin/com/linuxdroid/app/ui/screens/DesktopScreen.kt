@@ -228,19 +228,27 @@ private fun LinuxDesktopWorkspace(
 
     // Monitor session actions from in-guest LDDE (e.g. Power Menu -> Android or Shutdown)
     LaunchedEffect(environment.rootfsPath) {
-        val actionFile = java.io.File(environment.rootfsPath, "tmp/linuxdroid_session_action")
+        val actionCandidates = listOf(
+            java.io.File(environment.rootfsPath, "tmp/linuxdroid_session_action"),
+            java.io.File(environment.rootfsPath, "run/user/1000/linuxdroid_session_action"),
+            java.io.File(environment.rootfsPath, "run/user/0/linuxdroid_session_action"),
+        )
         while (isActive) {
-            if (actionFile.exists()) {
-                try {
-                    val action = actionFile.readText().trim()
-                    actionFile.delete()
-                    if (action == "minimize") {
-                        navController.popBackStack()
-                    } else if (action == "shutdown") {
-                        environmentViewModel.stopEnvironment(environment)
-                        navController.popBackStack()
-                    }
-                } catch (_: Exception) {}
+            for (actionFile in actionCandidates) {
+                if (actionFile.exists()) {
+                    try {
+                        val action = actionFile.readText().trim()
+                        actionFile.delete()
+                        if (action == "minimize") {
+                            navController.popBackStack()
+                            break
+                        } else if (action == "shutdown") {
+                            environmentViewModel.stopEnvironment(environment)
+                            navController.popBackStack()
+                            break
+                        }
+                    } catch (_: Exception) {}
+                }
             }
             delay(250)
         }

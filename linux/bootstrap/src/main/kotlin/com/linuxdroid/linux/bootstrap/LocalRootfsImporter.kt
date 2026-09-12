@@ -599,13 +599,16 @@ class LocalRootfsImporter(
     private suspend fun injectSetupPayload(rootfsDir: File, environment: Environment, onLog: suspend (String) -> Unit) {
         val payloadDir = File(rootfsDir, SETUP_PAYLOAD_DIR.removePrefix("/")).apply { mkdirs() }
         val packagesDir = File(payloadDir, "packages").apply { mkdirs() }
+        val tmpPkgsDir = File(rootfsDir, "tmp/linuxdroid-packages").apply { mkdirs() }
 
         // 1. Copy LDDM deb
         val lddmDeb = packageInstaller.resolvePackageDeb("linuxdroid-display-manager", environment)
         if (lddmDeb != null && lddmDeb.exists()) {
             val destDeb = File(packagesDir, lddmDeb.name)
             lddmDeb.copyTo(destDeb, overwrite = true)
-            onLog(">>> [PAYLOAD] Injected LDDM package: ${destDeb.name}")
+            lddmDeb.copyTo(File(tmpPkgsDir, "linuxdroid-display-manager.deb"), overwrite = true)
+            lddmDeb.copyTo(File(tmpPkgsDir, lddmDeb.name), overwrite = true)
+            onLog(">>> [PAYLOAD] Injected LDDM package to /tmp/linuxdroid-packages/ and ${destDeb.name}")
         } else {
             onLog(">>> [WARN] LDDM package not immediately resolvable from assets; will search in guest during setup.")
         }
@@ -615,7 +618,9 @@ class LocalRootfsImporter(
         if (lddeDeb != null && lddeDeb.exists()) {
             val destDeb = File(packagesDir, lddeDeb.name)
             lddeDeb.copyTo(destDeb, overwrite = true)
-            onLog(">>> [PAYLOAD] Injected LDDE package: ${destDeb.name}")
+            lddeDeb.copyTo(File(tmpPkgsDir, "linuxdroid-desktop-environment.deb"), overwrite = true)
+            lddeDeb.copyTo(File(tmpPkgsDir, lddeDeb.name), overwrite = true)
+            onLog(">>> [PAYLOAD] Injected LDDE package to /tmp/linuxdroid-packages/ and ${destDeb.name}")
         } else {
             onLog(">>> [WARN] LDDE package not immediately resolvable from assets; will search in guest during setup.")
         }

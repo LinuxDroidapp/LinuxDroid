@@ -542,15 +542,6 @@ class EnvironmentViewModel @Inject constructor(
         }
     }
 
-    fun prepareAndStartInGuestGuiInstall(environment: Environment, onReady: () -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            guiInstaller.prepareInGuestGuiInstall(environment)
-            withContext(Dispatchers.Main) {
-                onReady()
-            }
-        }
-    }
-
     fun repairGui(environment: Environment) {
         viewModelScope.launch(Dispatchers.IO) {
             val envId = environment.id.value

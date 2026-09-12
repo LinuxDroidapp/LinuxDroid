@@ -224,12 +224,11 @@ fun HomeScreen(
                     onClick = {
                         if (activeLocalState.isSetupPending) {
                             showSetupRequiredDialog = true
-                        } else if (activeEnvGuiState == GuiState.INSTALLED) {
+                        } else if (activeEnv.state == EnvironmentState.RUNNING) {
                             navController.navigate(Screen.Desktop.route(activeEnv.id.value))
                         } else {
-                            environmentViewModel.prepareAndStartInGuestGuiInstall(activeEnv) {
-                                navController.navigate(Screen.Terminal.route(activeEnv.id.value, "/etc/linuxdroid/install-gui.sh"))
-                            }
+                            environmentViewModel.startEnvironment(activeEnv, StartMode.GUI)
+                            navController.navigate(Screen.Desktop.route(activeEnv.id.value))
                         }
                     }
                 )
@@ -250,7 +249,7 @@ fun HomeScreen(
                     environment = activeEnv,
                     guiState = activeEnvGuiState,
                     onOpenTerminal = { navController.navigate(Screen.Terminal.route(activeEnv.id.value)) },
-                    onManageGui = { navController.navigate(Screen.GuiInstaller.route(activeEnv.id.value)) },
+                    onManageGui = { navController.navigate(Screen.Desktop.route(activeEnv.id.value)) },
                     onPackageManager = { navController.navigate(Screen.PackageManager.route(activeEnv.id.value)) },
                 )
 
@@ -550,6 +549,11 @@ private fun NeuGuiLaunchCard(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClick,
+                )
                 .padding(16.dp),
         ) {
             val iconWidth = maxWidth * 0.40f
@@ -564,12 +568,7 @@ private fun NeuGuiLaunchCard(
                 Surface(
                     modifier = Modifier
                         .width(iconWidth)
-                        .aspectRatio(1f)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onClick,
-                        ),
+                        .aspectRatio(1f),
                     shape = RoundedCornerShape(16.dp),
                     color = if (isRunning) neuColors.primaryAccent.copy(alpha = 0.10f)
                             else neuColors.surfacePressed,
@@ -665,10 +664,10 @@ private fun NeuGuiLaunchCard(
                         }
                         val statusText = when {
                             isRunning -> "Session active"
-                            guiState == GuiState.INSTALLED -> "Tap icon to launch"
-                            guiState == GuiState.FAILED -> "Tap to repair GUI"
-                            guiState == GuiState.INSTALLING || guiState == GuiState.REPAIRING -> "Installing GUI..."
-                            else -> "Tap to install GUI"
+                            guiState == GuiState.INSTALLED -> "Tap to launch"
+                            guiState == GuiState.FAILED -> "Tap to launch or repair"
+                            guiState == GuiState.INSTALLING || guiState == GuiState.REPAIRING -> "Configuring GUI..."
+                            else -> "Tap to launch"
                         }
                         Box(
                             modifier = Modifier
