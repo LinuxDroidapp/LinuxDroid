@@ -36,13 +36,6 @@ class EnvironmentStorage(
 
     private val log = LinuxDroidLogger(LogSubsystem.FILESYSTEM)
 
-    /** Returns the base directory containing all environments. */
-    val environmentsDir: File get() = baseDir
-
-    /** Returns all environment IDs that exist in storage. */
-    fun listStoredEnvironmentIds(): List<EnvironmentId> =
-        baseDir.listFiles()?.filter { it.isDirectory }?.map { EnvironmentId(it.name) } ?: emptyList()
-
     /** Returns the root directory for a specific environment. */
     fun environmentDir(id: EnvironmentId): File = File(baseDir, id.value)
 

@@ -110,22 +110,17 @@ fun HomeScreen(
 
     val activeEnv = environments.firstOrNull()
 
-    val isDiskRootfsReady = activeEnv != null && environmentViewModel.isRootfsReady(activeEnv)
+    val installingEnv = environments.firstOrNull {
+        it.state == EnvironmentState.INSTALLING || (installProgress[it.id.value] != null)
+    }
 
-    val hasInstalledRootfs = (activeEnv != null && (
+    val hasInstalledRootfs = activeEnv != null && (
         activeEnv.state == EnvironmentState.READY ||
         activeEnv.state == EnvironmentState.RUNNING ||
         activeEnv.state == EnvironmentState.STARTING ||
         activeEnv.state == EnvironmentState.STOPPED ||
         activeEnv.state == EnvironmentState.STOPPING
-    )) || isDiskRootfsReady
-
-    val installingEnv = environments.firstOrNull {
-        (it.state == EnvironmentState.INSTALLING && !isDiskRootfsReady) || (installProgress[it.id.value] != null)
-    }
-
-    val isActivelyInstalling = installingEnv != null && installProgress[installingEnv.id.value] != null
-    val showInstallationScreen = !hasInstalledRootfs || isActivelyInstalling
+    )
 
     // Check shared storage permission and refresh GUI states on resume
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -134,7 +129,6 @@ fun HomeScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 settingsViewModel.checkStorageAccess()
                 environmentViewModel.refreshGuiStates()
-                environmentViewModel.reconcileRootfsState()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -164,7 +158,7 @@ fun HomeScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (showInstallationScreen) {
+            if (!hasInstalledRootfs || installingEnv != null) {
                 // NO Rootfs Present -> Show Rootfs Installation Screen
                 RootfsInstallationCard(
                     environmentViewModel = environmentViewModel,
@@ -1729,7 +1723,7 @@ private fun RootfsInstallationCard(
                                 )
                                 Column {
                                     Text(
-                                        text = "Download Ubuntu Base",
+                                        text = "Download Ubuntu Base 26.04 ARM64",
                                         fontSize = 13.sp,
                                         fontWeight = if (isDownload) FontWeight.Bold else FontWeight.Medium,
                                         color = neuColors.textPrimary,
@@ -1768,7 +1762,7 @@ private fun RootfsInstallationCard(
                                 )
                                 Column {
                                     Text(
-                                        text = "Use Local Archive",
+                                        text = "Local Rootfs Archive",
                                         fontSize = 13.sp,
                                         fontWeight = if (isLocal) FontWeight.Bold else FontWeight.Medium,
                                         color = neuColors.textPrimary,

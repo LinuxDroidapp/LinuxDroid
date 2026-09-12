@@ -80,9 +80,6 @@ class EnvironmentViewModel @Inject constructor(
     private val _errorMessage = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val errorMessage: SharedFlow<String> = _errorMessage.asSharedFlow()
 
-    init {
-        reconcileRootfsState()
-    }
 
     fun prepareDistribution(distribution: Distribution, release: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -188,30 +185,18 @@ class EnvironmentViewModel @Inject constructor(
                 _localRootfsStates.update { it + (envId to LocalRootfsState.READY) }
                 _installProgress.update { it - envId }
                 _installStatusText.update { it - envId }
-                log.info("Rootfs installed with config and environment $envId is READY (GUI=NOT_INSTALLED, SESSION=STOPPED)")
+                log.info("Rootfs installed with config and environment $envId is READY")
             } catch (e: Exception) {
                 log.error("Failed to install rootfs with config for $envId", e)
-                if (isRootfsReady(environment)) {
-                    log.info("Rootfs verified on disk despite bootstrap notice for $envId. Marking READY.")
-                    dao.updateState(
-                        id = envId,
-                        state = EnvironmentState.READY.name,
-                        timestamp = System.currentTimeMillis(),
-                        failureMessage = null,
-                    )
-                    _guiStates.update { it + (envId to GuiState.NOT_INSTALLED) }
-                    _localRootfsStates.update { it + (envId to LocalRootfsState.READY) }
-                } else {
-                    dao.updateState(
-                        id = envId,
-                        state = EnvironmentState.FAILED.name,
-                        timestamp = System.currentTimeMillis(),
-                        failureMessage = e.message ?: "Installation failed",
-                    )
-                }
+                dao.updateState(
+                    id = envId,
+                    state = EnvironmentState.FAILED.name,
+                    timestamp = System.currentTimeMillis(),
+                    failureMessage = e.message ?: "Installation failed",
+                )
                 _installProgress.update { it - envId }
                 _installStatusText.update { it - envId }
-                _errorMessage.tryEmit("Bootstrap notice: ${e.message}")
+                _errorMessage.tryEmit("Bootstrap failed: ${e.message}")
             }
         }
     }
@@ -687,28 +672,16 @@ class EnvironmentViewModel @Inject constructor(
                 log.info("Local rootfs imported successfully for $envId. ROOTFS_READY (GUI=NOT_INSTALLED, SESSION=STOPPED)")
             } catch (e: Exception) {
                 log.error("Failed to import local rootfs for $envId", e)
-                if (isRootfsReady(id)) {
-                    log.info("Local rootfs verified on disk despite import notice for $envId. Marking READY.")
-                    dao.updateState(
-                        id = envId,
-                        state = EnvironmentState.READY.name,
-                        timestamp = System.currentTimeMillis(),
-                        failureMessage = null,
-                    )
-                    _guiStates.update { it + (envId to GuiState.NOT_INSTALLED) }
-                    _localRootfsStates.update { it + (envId to LocalRootfsState.READY) }
-                } else {
-                    dao.updateState(
-                        id = envId,
-                        state = EnvironmentState.FAILED.name,
-                        timestamp = System.currentTimeMillis(),
-                        failureMessage = e.message ?: "Local rootfs import failed",
-                    )
-                    _localRootfsStates.update { it + (envId to LocalRootfsState.SETUP_FAILED) }
-                }
+                dao.updateState(
+                    id = envId,
+                    state = EnvironmentState.FAILED.name,
+                    timestamp = System.currentTimeMillis(),
+                    failureMessage = e.message ?: "Local rootfs import failed",
+                )
+                _localRootfsStates.update { it + (envId to LocalRootfsState.SETUP_FAILED) }
                 _installProgress.update { it - envId }
                 _installStatusText.update { it - envId }
-                _errorMessage.tryEmit("Import notice: ${e.message}")
+                _errorMessage.tryEmit("Import failed: ${e.message}")
             }
         }
     }
@@ -825,31 +798,19 @@ class EnvironmentViewModel @Inject constructor(
                 _localRootfsStates.update { it + (envId to LocalRootfsState.READY) }
                 _installProgress.update { it - envId }
                 _installStatusText.update { it - envId }
-                log.info("Local rootfs imported successfully from URI for $envId. ROOTFS_READY (GUI=NOT_INSTALLED, SESSION=STOPPED)")
+                log.info("Local rootfs imported successfully from URI for $envId")
             } catch (e: Exception) {
                 log.error("Failed to import local rootfs from URI for $envId", e)
-                if (isRootfsReady(id)) {
-                    log.info("Local rootfs verified on disk despite import notice for $envId. Marking READY.")
-                    dao.updateState(
-                        id = envId,
-                        state = EnvironmentState.READY.name,
-                        timestamp = System.currentTimeMillis(),
-                        failureMessage = null,
-                    )
-                    _guiStates.update { it + (envId to GuiState.NOT_INSTALLED) }
-                    _localRootfsStates.update { it + (envId to LocalRootfsState.READY) }
-                } else {
-                    dao.updateState(
-                        id = envId,
-                        state = EnvironmentState.FAILED.name,
-                        timestamp = System.currentTimeMillis(),
-                        failureMessage = e.message ?: "Local rootfs import failed",
-                    )
-                    _localRootfsStates.update { it + (envId to LocalRootfsState.SETUP_FAILED) }
-                }
+                dao.updateState(
+                    id = envId,
+                    state = EnvironmentState.FAILED.name,
+                    timestamp = System.currentTimeMillis(),
+                    failureMessage = e.message ?: "Local rootfs import failed",
+                )
+                _localRootfsStates.update { it + (envId to LocalRootfsState.SETUP_FAILED) }
                 _installProgress.update { it - envId }
                 _installStatusText.update { it - envId }
-                _errorMessage.tryEmit("Import notice: ${e.message}")
+                _errorMessage.tryEmit("Import failed: ${e.message}")
             }
         }
     }
@@ -893,113 +854,6 @@ class EnvironmentViewModel @Inject constructor(
                 _installProgress.update { it - envId }
                 _installStatusText.update { it - envId }
                 _errorMessage.tryEmit("Setup failed: ${e.message}")
-            }
-        }
-    }
-
-    /**
-     * Checks whether a valid rootfs is installed and ready on disk for the given [environment].
-     * Authoritative check across memory/database state, manifest markers, and filesystem layout.
-     */
-    fun isRootfsReady(environment: Environment): Boolean {
-        if (environment.state.canStart() || environment.state.isActive() || environment.state == EnvironmentState.READY) {
-            return true
-        }
-        return isRootfsReady(environment.id)
-    }
-
-    fun isRootfsReady(id: EnvironmentId): Boolean {
-        val manifestFile = File(storage.metadataDir(id), "rootfs-manifest.json")
-        if (manifestFile.exists() && manifestFile.length() > 0) {
-            try {
-                val content = manifestFile.readText()
-                if (content.contains("\"status\": \"ready\"", ignoreCase = true) ||
-                    content.contains("\"deploymentState\": \"ROOTFS_READY\"", ignoreCase = true)) {
-                    return true
-                }
-            } catch (_: Exception) {}
-        }
-        val rootfsDir = storage.rootfsDir(id)
-        val readyMarker = File(rootfsDir, "etc/linuxdroid/rootfs-ready")
-        if (readyMarker.exists()) {
-            return true
-        }
-        val initFile = File(rootfsDir, "sbin/linuxdroid-init")
-        val shFile = File(rootfsDir, "bin/sh")
-        if (initFile.exists() && shFile.exists()) {
-            return true
-        }
-        return false
-    }
-
-    /**
-     * Startup and lifecycle reconciliation:
-     * Detects an existing valid rootfs across app restarts, Activity recreations, or database
-     * interruptions, restoring ROOTFS_READY without showing the installation screen again.
-     */
-    fun reconcileRootfsState() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val entities = dao.getAll()
-                if (entities.isNotEmpty()) {
-                    for (entity in entities) {
-                        val env = EnvironmentMapper.toDomain(entity)
-                        val envId = env.id.value
-                        val readyOnDisk = isRootfsReady(env)
-                        if (readyOnDisk) {
-                            if (env.state == EnvironmentState.INSTALLING ||
-                                env.state == EnvironmentState.FAILED ||
-                                env.state == EnvironmentState.CREATED ||
-                                env.state == EnvironmentState.RECOVERING
-                            ) {
-                                log.info("Reconciliation: Restoring ROOTFS_READY state for environment $envId")
-                                dao.updateState(
-                                    id = envId,
-                                    state = EnvironmentState.READY.name,
-                                    timestamp = System.currentTimeMillis(),
-                                    failureMessage = null,
-                                )
-                            }
-                            val diskGui = getGuiState(env)
-                            _guiStates.update { it + (envId to diskGui) }
-                            _localRootfsStates.update { it + (envId to LocalRootfsState.READY) }
-                        } else if (env.state == EnvironmentState.INSTALLING && _installProgress.value[envId] == null) {
-                            log.warn("Reconciliation: Environment $envId was left in INSTALLING without active progress. Marking FAILED.")
-                            dao.updateState(
-                                id = envId,
-                                state = EnvironmentState.FAILED.name,
-                                timestamp = System.currentTimeMillis(),
-                                failureMessage = "Installation interrupted",
-                            )
-                        }
-                    }
-                } else {
-                    // Check storage for an existing rootfs directory if database is empty
-                    val storedIds = storage.listStoredEnvironmentIds()
-                    for (id in storedIds) {
-                        val candidateEnv = Environment(
-                            metadata = EnvironmentMetadata(
-                                id = id,
-                                name = "Ubuntu Base 26.04 ARM64",
-                                distribution = Distribution.UBUNTU,
-                                architecture = Architecture.ARM64,
-                            ),
-                            configuration = EnvironmentConfiguration(),
-                            state = EnvironmentState.READY,
-                            rootfsPath = storage.rootfsDir(id).absolutePath,
-                            metadataPath = storage.metadataDir(id).absolutePath,
-                        )
-                        if (isRootfsReady(id)) {
-                            log.info("Reconciliation: Found existing rootfs on disk: $id. Restoring database entity.")
-                            dao.insert(EnvironmentMapper.toEntity(candidateEnv))
-                            _guiStates.update { it + (id.value to getGuiState(candidateEnv)) }
-                            _localRootfsStates.update { it + (id.value to LocalRootfsState.READY) }
-                            break
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                log.warn("Reconciliation error: ${e.message}")
             }
         }
     }
