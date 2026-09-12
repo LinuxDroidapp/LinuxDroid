@@ -58,6 +58,7 @@ class RootfsExtractor(
 
         var entryCount = 0
         val buffer = ByteArray(32 * 1024)
+        val deferredHardLinks = mutableListOf<DeferredHardLink>()
 
         TarArchiveInputStream(decompressorStream).use { tarIn ->
             var entry: TarArchiveEntry? = tarIn.nextEntry
@@ -88,6 +89,23 @@ class RootfsExtractor(
                         } catch (e: Exception) {
                             log.warn("Symlink creation failed for ${targetFile.name} -> ${entry.linkName}: ${e.message}")
                         }
+                    } else if (entry.isLink) {
+                        // Tar hard link (e.g. usr/lib/cargo/bin/coreutils/env -> usr/bin/coreutils)
+                        targetFile.parentFile?.mkdirs()
+                        val rawLink = entry.linkName.removePrefix("/").removePrefix("./")
+                        val strippedLink = stripPathComponents(rawLink, stripComponents)
+                        val sourceFile = File(destDir, strippedLink)
+                        try {
+                            Files.deleteIfExists(targetFile.toPath())
+                            if (sourceFile.exists()) {
+                                createHardLinkOrFallback(targetFile, sourceFile)
+                                applyPermissions(targetFile, entryName, entry.mode)
+                            } else {
+                                deferredHardLinks.add(DeferredHardLink(targetFile, sourceFile, entryName, entry.mode))
+                            }
+                        } catch (e: Exception) {
+                            log.warn("Hard link creation failed for ${targetFile.name} -> ${entry.linkName}: ${e.message}")
+                        }
                     } else {
                         targetFile.parentFile?.mkdirs()
                         try {
@@ -102,20 +120,7 @@ class RootfsExtractor(
                             }
                         }
 
-                        // Apply executable permissions
-                        val mode = entry.mode
-                        val isExec = (mode and 0b001001001) != 0 ||
-                                entryName.contains("bin/") ||
-                                entryName.contains("sbin/") ||
-                                entryName.contains("lib/") ||
-                                entryName.contains("libexec/") ||
-                                entryName.endsWith(".so") ||
-                                entryName.contains(".so.")
-                        if (isExec) {
-                            targetFile.setExecutable(true, false)
-                            NativeBridge.setExecutable(targetFile.absolutePath)
-                        }
-                        targetFile.setReadable(true, false)
+                        applyPermissions(targetFile, entryName, entry.mode)
                     }
                 }
 
@@ -127,10 +132,60 @@ class RootfsExtractor(
                 entry = tarIn.nextEntry
             }
         }
+
+        // Process any deferred hard links whose source files were unpacked later in the stream
+        for (deferred in deferredHardLinks) {
+            try {
+                if (deferred.source.exists()) {
+                    Files.deleteIfExists(deferred.target.toPath())
+                    createHardLinkOrFallback(deferred.target, deferred.source)
+                    applyPermissions(deferred.target, deferred.entryName, deferred.mode)
+                } else {
+                    log.warn("Deferred hardlink source missing: ${deferred.source.path} for target ${deferred.target.path}")
+                }
+            } catch (e: Exception) {
+                log.warn("Deferred hardlink processing failed for ${deferred.target.name}: ${e.message}")
+            }
+        }
+
         log.info("[ROOTFS_EXTRACT] Extracted $entryCount entries successfully to ${destDir.path}")
         onLog(">>> [EXTRACT] Completed: $entryCount entries successfully unpacked.")
         entryCount
     }
+
+    private fun createHardLinkOrFallback(target: File, source: File) {
+        try {
+            Files.createLink(target.toPath(), source.toPath())
+        } catch (e: Exception) {
+            try {
+                Files.copy(source.toPath(), target.toPath())
+            } catch (_: Exception) {
+                Files.createSymbolicLink(target.toPath(), source.toPath())
+            }
+        }
+    }
+
+    private fun applyPermissions(targetFile: File, entryName: String, mode: Int) {
+        val isExec = (mode and 0b001001001) != 0 ||
+                entryName.contains("bin/") ||
+                entryName.contains("sbin/") ||
+                entryName.contains("lib/") ||
+                entryName.contains("libexec/") ||
+                entryName.endsWith(".so") ||
+                entryName.contains(".so.")
+        if (isExec) {
+            targetFile.setExecutable(true, false)
+            NativeBridge.setExecutable(targetFile.absolutePath)
+        }
+        targetFile.setReadable(true, false)
+    }
+
+    private data class DeferredHardLink(
+        val target: File,
+        val source: File,
+        val entryName: String,
+        val mode: Int,
+    )
 
     private fun stripPathComponents(path: String, count: Int): String {
         if (count <= 0) return path

@@ -64,6 +64,19 @@ class RuntimeEnvironmentSetup(
         } catch (_: Exception) {}
         NativeBridge.setExecutable(initFile.absolutePath)
 
+        // Also ensure /usr/sbin/linuxdroid-init exists if /sbin is not merged with /usr/sbin
+        val usrSbinDir = File(rootfsDir, "usr/sbin").apply { mkdirs() }
+        if (!usrSbinInit.exists() && usrSbinInit.canonicalPath != initFile.canonicalPath) {
+            try {
+                usrSbinInit.writeText(GuestInit.SCRIPT_CONTENT)
+                usrSbinInit.setReadable(true, false)
+                usrSbinInit.setExecutable(true, false)
+                NativeBridge.setExecutable(usrSbinInit.absolutePath)
+            } catch (e: Exception) {
+                log.warn("[RUNTIME_SETUP] Failed to write usr/sbin/linuxdroid-init: ${e.message}")
+            }
+        }
+
         // 2. Guest Init Hooks Directory (/etc/linuxdroid/init.d)
         File(rootfsDir, "etc/linuxdroid/init.d").mkdirs()
 

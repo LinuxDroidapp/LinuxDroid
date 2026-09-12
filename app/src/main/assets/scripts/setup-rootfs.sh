@@ -188,64 +188,7 @@ apt-get install -y --no-install-recommends "${BASE_PACKAGES[@]}" || {
 log_pass "Essential base utilities installed."
 
 # -----------------------------------------------------------------------------
-# 7. Install Wayland & Desktop Dependencies
-# -----------------------------------------------------------------------------
-log_step "Installing Wayland and GUI runtime libraries..."
-GUI_DEPENDENCIES=(
-    libwayland-client0
-    libwayland-server0
-    libwayland-cursor0
-    wayland-protocols
-    libpixman-1-0
-    libxkbcommon0
-    xwayland
-)
-
-apt-get install -y --no-install-recommends "${GUI_DEPENDENCIES[@]}" || {
-    log_warn "GUI dependencies installation failed; attempting dependency repair..."
-    apt-get install -f -y
-    apt-get install -y --no-install-recommends "${GUI_DEPENDENCIES[@]}" || log_fatal "Failed to install GUI dependencies."
-}
-log_pass "Wayland and GUI runtime dependencies installed."
-
-# -----------------------------------------------------------------------------
-# 8. Install LinuxDroid Packages (LDDM & LDDE)
-# -----------------------------------------------------------------------------
-log_step "Locating staged LinuxDroid ARM64 Debian packages..."
-LDDM_DEB="/tmp/linuxdroid-packages/linuxdroid-display-manager.deb"
-LDDE_DEB="/tmp/linuxdroid-packages/linuxdroid-desktop-environment.deb"
-
-if [ ! -f "${LDDM_DEB}" ] || [ ! -f "${LDDE_DEB}" ]; then
-    for pdir in /tmp/linuxdroid-packages "${PACKAGES_DIR}" /root/linuxdroid/packages; do
-        if [ -d "${pdir}" ]; then
-            [ ! -f "${LDDM_DEB}" ] && LDDM_DEB="$(find "${pdir}" -maxdepth 2 -type f \( -name "*display-manager*.deb" -o -name "*lddm*.deb" \) 2>/dev/null | head -n 1 || true)"
-            [ ! -f "${LDDE_DEB}" ] && LDDE_DEB="$(find "${pdir}" -maxdepth 2 -type f \( -name "*desktop-environment*.deb" -o -name "*ldde*.deb" \) 2>/dev/null | head -n 1 || true)"
-        fi
-    done
-fi
-
-GUI_INSTALLED_OK=false
-if [ -n "${LDDM_DEB}" ] && [ -f "${LDDM_DEB}" ] && [ -n "${LDDE_DEB}" ] && [ -f "${LDDE_DEB}" ]; then
-    log_info "Installing LDDM & LDDE packages via APT..."
-    if apt-get install -y "${LDDM_DEB}" "${LDDE_DEB}"; then
-        log_pass "LDDM and LDDE packages installed successfully via APT."
-        GUI_INSTALLED_OK=true
-    else
-        log_warn "Initial APT package installation failed; attempting --fix-broken..."
-        apt-get --fix-broken install -y || true
-        if apt-get install -y "${LDDM_DEB}" "${LDDE_DEB}"; then
-            log_pass "LDDM and LDDE packages installed successfully after dependency repair."
-            GUI_INSTALLED_OK=true
-        else
-            log_warn "Failed to install LDDM/LDDE packages via APT. Preserving CLI environment."
-        fi
-    fi
-else
-    log_warn "LinuxDroid Debian packages (LDDM/LDDE) not found in staging. Preserving CLI environment."
-fi
-
-# -----------------------------------------------------------------------------
-# 9. User and Environment Configuration
+# 7. User and Environment Configuration
 # -----------------------------------------------------------------------------
 log_step "Configuring user account and sudo privileges..."
 
@@ -336,17 +279,8 @@ log_step "Verifying complete installation..."
 if [ ! -x /bin/sh ] && [ ! -x /usr/bin/sh ]; then
     log_fatal "Validation failed: shell (/bin/sh) missing."
 fi
-if [ ! -x /sbin/linuxdroid-init ]; then
-    log_fatal "Validation failed: /sbin/linuxdroid-init missing."
-fi
-
-HAS_LDDM=false
-HAS_LDDE=false
-if command -v lddm >/dev/null 2>&1 || [ -x /usr/bin/lddm ] || [ -x /usr/local/bin/lddm ]; then
-    HAS_LDDM=true
-fi
-if command -v ldde >/dev/null 2>&1 || [ -x /usr/bin/ldde ] || [ -x /usr/local/bin/ldde ]; then
-    HAS_LDDE=true
+if [ ! -x /sbin/linuxdroid-init ] && [ ! -x /usr/sbin/linuxdroid-init ]; then
+    log_fatal "Validation failed: /sbin/linuxdroid-init (or /usr/sbin/linuxdroid-init) missing."
 fi
 
 # Create completion markers
@@ -357,18 +291,14 @@ DISTRO=${DISTRO_ID}
 CODENAME=${DISTRO_CODENAME}
 ARCH=${HOST_ARCH}
 USER=${TARGET_USER}
-LDDM_INSTALLED=${HAS_LDDM}
-LDDE_INSTALLED=${HAS_LDDE}
+LDDM_INSTALLED=false
+LDDE_INSTALLED=false
 EOF
 chmod 0644 "${COMPLETION_MARKER}"
 
 # Also create ROOTFS_READY and POST_INSTALL_COMPLETE for existing component compatibility
 cp -f "${COMPLETION_MARKER}" /etc/linuxdroid/ROOTFS_READY
 cp -f "${COMPLETION_MARKER}" /etc/linuxdroid/POST_INSTALL_COMPLETE
-
-if [ "${HAS_LDDM}" = true ] && [ "${HAS_LDDE}" = true ]; then
-    cp -f "${COMPLETION_MARKER}" /etc/linuxdroid/GUI_INSTALL_COMPLETE
-fi
 
 echo "STATE=ROOTFS_READY" > "${STATE_FILE}"
 echo "COMPLETED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "${STATE_FILE}"
@@ -377,7 +307,7 @@ log_pass "Installation validated! Completion marker created at ${COMPLETION_MARK
 
 echo "================================================================================"
 echo " LinuxDroid: In-Guest Setup Succeeded!"
-echo " Both CLI and GUI (LDDM/LDDE) are ready."
+echo " CLI environment is ready."
 echo "================================================================================"
 
 trap - EXIT

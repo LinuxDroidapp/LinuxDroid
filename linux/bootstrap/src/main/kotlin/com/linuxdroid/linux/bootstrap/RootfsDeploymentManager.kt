@@ -451,15 +451,7 @@ class RootfsDeploymentManager(
                     arch = environment.architecture.linuxArch,
                 )
 
-                // 7. Stage LDDM and LDDE packages into /tmp/linuxdroid-packages/
-                stageDebPackages(
-                    finalRootfsDir = finalRootfsDir,
-                    environment = environment,
-                    lddmDebOverride = lddmDebOverride,
-                    lddeDebOverride = lddeDebOverride,
-                )
-
-                // 8. In-guest provisioning (installs CLI and LDDM/LDDE packages, safely executed, preserves CLI)
+                // 7. In-guest provisioning (installs CLI user, sudo, shell, and packages)
                 runCatching {
                     executeCliProvisioning(
                         environment = environment,
@@ -645,16 +637,6 @@ class RootfsDeploymentManager(
 
         installLogger.logPostInstallStart("FINAL_VALIDATION")
         installLogger.logPostInstallSuccess("FINAL_VALIDATION", 10, 0)
-
-        val lddmDeb = packageInstaller.resolvePackageDeb("linuxdroid-display-manager", environment)
-        val lddeDeb = packageInstaller.resolvePackageDeb("linuxdroid-desktop-environment", environment)
-        if (lddmDeb != null && lddeDeb != null) {
-            runCatching {
-                packageInstaller.installLDDM(environment, finalRootfsDir, lddmDeb, onProgress, onLog)
-                packageInstaller.installLDDE(environment, finalRootfsDir, lddeDeb, onProgress, onLog)
-                GuiInstallScript.writeGuiInstallCompleteMarker(finalRootfsDir)
-            }
-        }
 
         val secretFile = File(finalRootfsDir, "etc/linuxdroid/.install.secret")
         if (secretFile.exists()) secretFile.delete()

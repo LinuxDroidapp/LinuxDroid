@@ -321,7 +321,7 @@ class EnvironmentViewModel @Inject constructor(
                 log.info("Environment $envId is now RUNNING (startMode=${startMode.name})")
             } catch (e: Exception) {
                 log.error("Failed to start environment $envId in ${startMode.name} mode", e)
-                if (startMode == StartMode.GUI && (e is GuiNotInstalledError || e is GuiInstallFailedError || e is GuiValidationFailedError || e is GuiInstallInProgressError)) {
+                if (startMode == StartMode.GUI) {
                     dao.updateState(
                         id = envId,
                         state = EnvironmentState.READY.name,
@@ -335,14 +335,18 @@ class EnvironmentViewModel @Inject constructor(
                         }
                         is GuiInstallFailedError -> {
                             _guiStates.update { it + (envId to GuiState.FAILED) }
-                            _errorMessage.tryEmit("GUI installation failed: ${e.reason}. Tap 'Repair GUI' or view logs.")
+                            _errorMessage.tryEmit("GUI installation failed: ${e.reason}. Tap 'Retry GUI' or view logs.")
                         }
                         is GuiValidationFailedError -> {
                             _guiStates.update { it + (envId to GuiState.FAILED) }
-                            _errorMessage.tryEmit("GUI validation failed: ${e.details}. Tap 'Repair GUI' to fix.")
+                            _errorMessage.tryEmit("GUI validation failed: ${e.details}. Tap 'Retry GUI' to fix.")
                         }
                         is GuiInstallInProgressError -> {
                             _errorMessage.tryEmit("GUI installation is in progress. Please wait.")
+                        }
+                        else -> {
+                            _guiStates.update { it + (envId to GuiState.FAILED) }
+                            _errorMessage.tryEmit("Failed to launch GUI: ${e.message}. CLI remains ready.")
                         }
                     }
                 } else {
@@ -451,7 +455,7 @@ class EnvironmentViewModel @Inject constructor(
                 log.info("Environment $envId restarted and is RUNNING (startMode=${startMode.name})")
             } catch (e: Exception) {
                 log.error("Failed to restart environment $envId", e)
-                if (startMode == StartMode.GUI && (e is GuiNotInstalledError || e is GuiInstallFailedError || e is GuiValidationFailedError || e is GuiInstallInProgressError)) {
+                if (startMode == StartMode.GUI) {
                     dao.updateState(
                         id = envId,
                         state = EnvironmentState.READY.name,
@@ -465,14 +469,18 @@ class EnvironmentViewModel @Inject constructor(
                         }
                         is GuiInstallFailedError -> {
                             _guiStates.update { it + (envId to GuiState.FAILED) }
-                            _errorMessage.tryEmit("GUI installation failed: ${e.reason}. Tap 'Repair GUI' or view logs.")
+                            _errorMessage.tryEmit("GUI installation failed: ${e.reason}. Tap 'Retry GUI' or view logs.")
                         }
                         is GuiValidationFailedError -> {
                             _guiStates.update { it + (envId to GuiState.FAILED) }
-                            _errorMessage.tryEmit("GUI validation failed: ${e.details}. Tap 'Repair GUI' to fix.")
+                            _errorMessage.tryEmit("GUI validation failed: ${e.details}. Tap 'Retry GUI' to fix.")
                         }
                         is GuiInstallInProgressError -> {
                             _errorMessage.tryEmit("GUI installation is in progress. Please wait.")
+                        }
+                        else -> {
+                            _guiStates.update { it + (envId to GuiState.FAILED) }
+                            _errorMessage.tryEmit("Failed to restart GUI: ${e.message}. CLI remains ready.")
                         }
                     }
                 } else {

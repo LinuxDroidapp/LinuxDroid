@@ -165,10 +165,11 @@ class RootfsValidator(
             checks.add(ValidationCheckResult("shell_executable", true, "Resolved shell at ${activeShell?.path}"))
         }
 
-        // 3.1 Mandatory Persistent Guest Init: /sbin/linuxdroid-init
+        // 3.1 Mandatory Persistent Guest Init: /sbin/linuxdroid-init or /usr/sbin/linuxdroid-init
         val guestInitFile = resolveGuestSymlink(rootfsDir, "/sbin/linuxdroid-init")
+            ?: resolveGuestSymlink(rootfsDir, "/usr/sbin/linuxdroid-init")
         if (guestInitFile == null || !guestInitFile.exists()) {
-            val msg = "Mandatory guest init executable missing: /sbin/linuxdroid-init"
+            val msg = "Mandatory guest init executable missing: /sbin/linuxdroid-init (or /usr/sbin/linuxdroid-init)"
             errors.add(msg)
             checks.add(ValidationCheckResult("guest_init", false, msg))
         } else if (!guestInitFile.canRead() || !guestInitFile.canExecute()) {
@@ -408,6 +409,7 @@ class RootfsValidator(
     fun validateRuntime(rootfsDir: File): Boolean {
         log.info("[STAGE_B] Executing Runtime Infrastructure Validation")
         val guestInit = resolveGuestSymlink(rootfsDir, "/sbin/linuxdroid-init")
+            ?: resolveGuestSymlink(rootfsDir, "/usr/sbin/linuxdroid-init")
         val initValid = guestInit != null && guestInit.exists() && guestInit.canExecute()
         val tmpValid = File(rootfsDir, "tmp").exists()
         val runValid = File(rootfsDir, "run").exists()

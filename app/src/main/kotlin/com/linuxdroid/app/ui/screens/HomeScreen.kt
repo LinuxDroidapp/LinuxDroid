@@ -189,8 +189,12 @@ fun HomeScreen(
                 )
 
                 val guiStates by environmentViewModel.guiStates.collectAsState()
+                val guiInstallProgress by environmentViewModel.guiInstallProgress.collectAsState()
                 val activeEnvGuiState = activeEnv.let { env ->
                     guiStates[env.id.value] ?: environmentViewModel.getGuiState(env)
+                }
+                val activeEnvGuiProgress = activeEnv.let { env ->
+                    guiInstallProgress[env.id.value] ?: 0f
                 }
 
                 val localRootfsStates by environmentViewModel.localRootfsStates.collectAsState()
@@ -221,7 +225,8 @@ fun HomeScreen(
                 NeuGuiLaunchCard(
                     environment = activeEnv,
                     guiState = activeEnvGuiState,
-                    onClick = {
+                    progress = activeEnvGuiProgress,
+                    onLaunch = {
                         if (activeLocalState.isSetupPending) {
                             showSetupRequiredDialog = true
                         } else if (activeEnv.state == EnvironmentState.RUNNING) {
@@ -230,7 +235,13 @@ fun HomeScreen(
                             environmentViewModel.startEnvironment(activeEnv, StartMode.GUI)
                             navController.navigate(Screen.Desktop.route(activeEnv.id.value))
                         }
-                    }
+                    },
+                    onInstall = {
+                        environmentViewModel.installGui(activeEnv)
+                    },
+                    onRetry = {
+                        environmentViewModel.installGui(activeEnv)
+                    },
                 )
 
                 // Terminal / CLI Mode Primary Card
@@ -249,7 +260,22 @@ fun HomeScreen(
                     environment = activeEnv,
                     guiState = activeEnvGuiState,
                     onOpenTerminal = { navController.navigate(Screen.Terminal.route(activeEnv.id.value)) },
-                    onManageGui = { navController.navigate(Screen.Desktop.route(activeEnv.id.value)) },
+                    onManageGui = {
+                        when (activeEnvGuiState) {
+                            GuiState.NOT_INSTALLED, GuiState.FAILED -> {
+                                environmentViewModel.installGui(activeEnv)
+                            }
+                            GuiState.INSTALLING, GuiState.REPAIRING -> {
+                                // Already in progress
+                            }
+                            GuiState.INSTALLED, GuiState.RUNNING, GuiState.STARTING -> {
+                                if (activeEnv.state != EnvironmentState.RUNNING) {
+                                    environmentViewModel.startEnvironment(activeEnv, StartMode.GUI)
+                                }
+                                navController.navigate(Screen.Desktop.route(activeEnv.id.value))
+                            }
+                        }
+                    },
                     onPackageManager = { navController.navigate(Screen.PackageManager.route(activeEnv.id.value)) },
                 )
 
@@ -536,10 +562,21 @@ private fun SharedStorageAccessDialog(
 private fun NeuGuiLaunchCard(
     environment: Environment,
     guiState: GuiState,
-    onClick: () -> Unit,
+    progress: Float = 0f,
+    onLaunch: () -> Unit,
+    onInstall: () -> Unit,
+    onRetry: () -> Unit,
 ) {
     val neuColors = NeuTheme.colors
     val isRunning = environment.state == EnvironmentState.RUNNING
+
+    val cardClickAction = when (guiState) {
+        GuiState.NOT_INSTALLED -> onInstall
+        GuiState.FAILED -> onRetry
+        GuiState.INSTALLED, GuiState.RUNNING -> onLaunch
+        GuiState.STARTING -> onLaunch
+        GuiState.INSTALLING, GuiState.REPAIRING -> null
+    }
 
     NeuCard(
         modifier = Modifier.fillMaxWidth(),
@@ -549,32 +586,44 @@ private fun NeuGuiLaunchCard(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onClick,
+                .then(
+                    if (cardClickAction != null) {
+                        Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = cardClickAction,
+                        )
+                    } else Modifier
                 )
                 .padding(16.dp),
         ) {
-            val iconWidth = maxWidth * 0.40f
-            val infoWidth = maxWidth * 0.60f
+            val iconWidth = maxWidth * 0.36f
+            val infoWidth = maxWidth * 0.64f
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // ── Left 40%: Big clickable square distro icon ─────────────
+                // ── Left: Square distro/desktop icon ─────────────
                 Surface(
                     modifier = Modifier
                         .width(iconWidth)
                         .aspectRatio(1f),
                     shape = RoundedCornerShape(16.dp),
-                    color = if (isRunning) neuColors.primaryAccent.copy(alpha = 0.10f)
-                            else neuColors.surfacePressed,
+                    color = when {
+                        isRunning -> neuColors.primaryAccent.copy(alpha = 0.10f)
+                        guiState == GuiState.FAILED -> MaterialTheme.colorScheme.error.copy(alpha = 0.08f)
+                        else -> neuColors.surfacePressed
+                    },
                     border = androidx.compose.foundation.BorderStroke(
                         width = if (isRunning) 1.5.dp else 1.dp,
-                        color = neuColors.primaryAccent.copy(alpha = if (isRunning) 0.70f else 0.35f),
+                        color = when {
+                            isRunning -> neuColors.primaryAccent.copy(alpha = 0.70f)
+                            guiState == GuiState.FAILED -> MaterialTheme.colorScheme.error.copy(alpha = 0.50f)
+                            guiState == GuiState.INSTALLED -> neuColors.primaryAccent.copy(alpha = 0.50f)
+                            else -> neuColors.primaryAccent.copy(alpha = 0.25f)
+                        },
                     ),
                     shadowElevation = if (isRunning) 6.dp else 2.dp,
                 ) {
@@ -586,103 +635,174 @@ private fun NeuGuiLaunchCard(
                     }
                 }
 
-                // ── Right 60%: Info column ──────────────────────────────────
+                // ── Right: Info column ──────────────────────────────────
                 Column(
                     modifier = Modifier.width(infoWidth - 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
-                    Text(
-                        text = "Desktop GUI",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                        ),
-                        color = neuColors.textPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Desktop GUI",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                            ),
+                            color = neuColors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+
+                        Surface(
+                            color = neuColors.surfacePressed,
+                            shape = RoundedCornerShape(6.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                0.5.dp, neuColors.borderHighlight.copy(alpha = 0.4f),
+                            ),
+                        ) {
+                            val badgeText = when (guiState) {
+                                GuiState.RUNNING -> "Running"
+                                GuiState.STARTING -> "Starting..."
+                                GuiState.INSTALLED -> "Wayland"
+                                GuiState.INSTALLING -> "Installing"
+                                GuiState.REPAIRING -> "Repairing"
+                                GuiState.FAILED -> "Failed"
+                                GuiState.NOT_INSTALLED -> "Not Installed"
+                            }
+                            Text(
+                                text = badgeText,
+                                fontFamily = SfMono,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = when (guiState) {
+                                    GuiState.RUNNING -> neuColors.success
+                                    GuiState.STARTING, GuiState.INSTALLED -> neuColors.secondaryAccent
+                                    GuiState.FAILED -> MaterialTheme.colorScheme.error
+                                    GuiState.INSTALLING, GuiState.REPAIRING -> neuColors.primaryAccent
+                                    GuiState.NOT_INSTALLED -> neuColors.textSecondary
+                                },
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                maxLines = 1,
+                            )
+                        }
+                    }
 
                     Text(
-                        text = environment.distribution.displayName,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                        text = "${environment.distribution.displayName} · Wayland Desktop",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                         color = neuColors.primaryAccent,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
 
-                    Surface(
-                        color = neuColors.surfacePressed,
-                        shape = RoundedCornerShape(6.dp),
-                        border = androidx.compose.foundation.BorderStroke(
-                            0.5.dp, neuColors.borderHighlight.copy(alpha = 0.4f),
-                        ),
-                    ) {
-                        val badgeText = when (guiState) {
-                            GuiState.RUNNING -> "Running"
-                            GuiState.STARTING -> "Starting..."
-                            GuiState.INSTALLED -> "Wayland"
-                            GuiState.INSTALLING -> "Installing..."
-                            GuiState.REPAIRING -> "Repairing..."
-                            GuiState.FAILED -> "Failed (Tap to fix)"
-                            GuiState.NOT_INSTALLED -> "Not Installed"
+                    if (guiState == GuiState.INSTALLING || guiState == GuiState.REPAIRING) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            LinearProgressIndicator(
+                                progress = { progress.coerceIn(0f, 1f) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = neuColors.primaryAccent,
+                                trackColor = neuColors.surfacePressed,
+                            )
+                            Text(
+                                text = "Configuring desktop... ${(progress * 100).toInt()}%",
+                                fontSize = 10.sp,
+                                fontFamily = SfMono,
+                                color = neuColors.textSecondary,
+                            )
                         }
-                        Text(
-                            text = badgeText,
-                            fontFamily = SfMono,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = when (guiState) {
-                                GuiState.RUNNING -> neuColors.success
-                                GuiState.STARTING, GuiState.INSTALLED -> neuColors.secondaryAccent
-                                GuiState.FAILED -> MaterialTheme.colorScheme.error
-                                GuiState.INSTALLING, GuiState.REPAIRING -> neuColors.primaryAccent
-                                GuiState.NOT_INSTALLED -> neuColors.textSecondary
-                            },
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                            maxLines = 1,
-                        )
-                    }
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            val indicatorColor = when {
+                                isRunning -> neuColors.success
+                                guiState == GuiState.INSTALLED -> neuColors.success
+                                guiState == GuiState.FAILED -> MaterialTheme.colorScheme.error
+                                else -> neuColors.textMuted
+                            }
+                            val statusText = when {
+                                isRunning -> "Session active"
+                                guiState == GuiState.INSTALLED -> "Tap to launch desktop"
+                                guiState == GuiState.FAILED -> "CLI ready · Tap to retry GUI"
+                                guiState == GuiState.NOT_INSTALLED -> "CLI ready · Desktop optional"
+                                else -> "Tap to launch"
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(indicatorColor)
+                            )
+                            Text(
+                                text = statusText,
+                                fontSize = 10.sp,
+                                fontFamily = SfMono,
+                                color = if (isRunning) neuColors.success else neuColors.textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
 
-                    Text(
-                        text = "${environment.architecture.linuxArch} · PRoot",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = neuColors.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    ) {
-                        val indicatorColor = when {
-                            isRunning -> neuColors.success
-                            guiState == GuiState.INSTALLED -> neuColors.success
-                            guiState == GuiState.FAILED -> MaterialTheme.colorScheme.error
-                            guiState == GuiState.INSTALLING || guiState == GuiState.REPAIRING -> neuColors.primaryAccent
-                            else -> neuColors.textMuted
+                        // Prominent Action Button based on state
+                        when (guiState) {
+                            GuiState.NOT_INSTALLED -> {
+                                OutlinedButton(
+                                    onClick = onInstall,
+                                    modifier = Modifier.fillMaxWidth().height(32.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                ) {
+                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Install GUI", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            GuiState.FAILED -> {
+                                OutlinedButton(
+                                    onClick = onRetry,
+                                    modifier = Modifier.fillMaxWidth().height(32.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Retry GUI Install", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            GuiState.INSTALLED -> {
+                                OutlinedButton(
+                                    onClick = onLaunch,
+                                    modifier = Modifier.fillMaxWidth().height(32.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Launch Desktop", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            GuiState.RUNNING -> {
+                                OutlinedButton(
+                                    onClick = onLaunch,
+                                    modifier = Modifier.fillMaxWidth().height(32.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                ) {
+                                    Icon(Icons.Default.DesktopWindows, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("View Desktop", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            else -> {}
                         }
-                        val statusText = when {
-                            isRunning -> "Session active"
-                            guiState == GuiState.INSTALLED -> "Tap to launch"
-                            guiState == GuiState.FAILED -> "Tap to launch or repair"
-                            guiState == GuiState.INSTALLING || guiState == GuiState.REPAIRING -> "Configuring GUI..."
-                            else -> "Tap to launch"
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(indicatorColor)
-                        )
-                        Text(
-                            text = statusText,
-                            fontSize = 10.sp,
-                            fontFamily = SfMono,
-                            color = if (isRunning) neuColors.success else neuColors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
                     }
                 }
             }
@@ -751,15 +871,24 @@ private fun LinuxManagementCard(
                 }
 
                 // GUI Layer Button
+                val isInstalling = guiState == GuiState.INSTALLING || guiState == GuiState.REPAIRING
                 OutlinedButton(
                     onClick = onManageGui,
+                    enabled = !isInstalling,
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                     shape = RoundedCornerShape(10.dp),
                 ) {
-                    Icon(Icons.Default.DesktopWindows, contentDescription = null, modifier = Modifier.size(16.dp))
+                    val (guiIcon, guiLabel) = when (guiState) {
+                        GuiState.INSTALLED, GuiState.RUNNING -> Icons.Default.DesktopWindows to "Desktop"
+                        GuiState.NOT_INSTALLED -> Icons.Default.Download to "Install GUI"
+                        GuiState.INSTALLING, GuiState.REPAIRING -> Icons.Default.HourglassEmpty to "Installing..."
+                        GuiState.FAILED -> Icons.Default.Refresh to "Retry GUI"
+                        else -> Icons.Default.DesktopWindows to "GUI"
+                    }
+                    Icon(guiIcon, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text(if (guiState == GuiState.INSTALLED) "Desktop" else "GUI", fontSize = 12.sp)
+                    Text(guiLabel, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
 
                 // Package Manager Button
@@ -911,6 +1040,23 @@ private fun NeuCliLaunchCard(
                             maxLines = 1,
                         )
                     }
+                    Surface(
+                        color = neuColors.success.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(6.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            0.5.dp, neuColors.success.copy(alpha = 0.4f),
+                        ),
+                    ) {
+                        Text(
+                            text = "✓ CLI Ready",
+                            fontFamily = SfMono,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = neuColors.success,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            maxLines = 1,
+                        )
+                    }
                 }
 
                 Text(
@@ -929,16 +1075,27 @@ private fun NeuCliLaunchCard(
                         modifier = Modifier
                             .size(7.dp)
                             .clip(CircleShape)
-                            .background(if (isRunning) neuColors.success else neuColors.textMuted)
+                            .background(neuColors.success)
                     )
                     Text(
-                        text = if (isRunning) "Session active — tap icon to resume" else "Tap to start a new session",
+                        text = if (isRunning) "Session active — tap to resume" else "Ready · Tap to open terminal",
                         fontSize = 10.sp,
                         fontFamily = SfMono,
                         color = if (isRunning) neuColors.success else neuColors.textSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                }
+
+                OutlinedButton(
+                    onClick = onClick,
+                    modifier = Modifier.fillMaxWidth().height(32.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (isRunning) "Resume Terminal" else "Open Terminal", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
