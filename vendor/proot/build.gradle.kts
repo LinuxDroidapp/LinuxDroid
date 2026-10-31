@@ -8,12 +8,12 @@ plugins {
 android {
     namespace = "com.linuxdroid.proot"
     compileSdk = 37
-    ndkVersion = "30.0.16248370"
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         minSdk = 28
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+            abiFilters += listOf("arm64-v8a")
         }
         externalNativeBuild {
             cmake {

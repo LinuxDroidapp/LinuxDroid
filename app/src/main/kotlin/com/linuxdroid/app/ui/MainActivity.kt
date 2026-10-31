@@ -1,5 +1,6 @@
 package com.linuxdroid.app.ui
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -11,8 +12,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.tooling.preview.Preview
 import com.linuxdroid.app.ui.navigation.LinuxDroidNavGraph
 import com.linuxdroid.app.ui.theme.LinuxDroidTheme
+import com.linuxdroid.core.model.AntigravityAuthState
 import com.linuxdroid.core.model.AppThemeMode
 import com.linuxdroid.core.storage.ThemePreferences
+import com.linuxdroid.linux.bootstrap.AntigravityManager
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -29,8 +32,12 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var themePreferences: ThemePreferences
 
+    @Inject
+    lateinit var antigravityManager: AntigravityManager
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleAuthCallbackIntent(intent)
         enableEdgeToEdge()
         setContent {
             val themeMode by themePreferences.themeMode.collectAsState()
@@ -45,6 +52,17 @@ class MainActivity : ComponentActivity() {
                 LinuxDroidNavGraph()
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAuthCallbackIntent(intent)
+    }
+
+    private fun handleAuthCallbackIntent(intent: Intent?) {
+        val data = intent?.data ?: return
+        antigravityManager.handleOAuthCallback(data)
     }
 }
 

@@ -22,6 +22,9 @@ import com.linuxdroid.core.runtime.RuntimeBackend
 import com.linuxdroid.core.runtime.TerminalBuffer
 import com.linuxdroid.core.runtime.TerminalLineData
 import com.linuxdroid.app.service.LinuxSessionService
+import com.linuxdroid.core.model.AntigravityAuthState
+import com.linuxdroid.linux.bootstrap.AntigravityAutomationAction
+import com.linuxdroid.linux.bootstrap.AntigravityTerminalAutomation
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -45,11 +48,32 @@ class TerminalViewModel @Inject constructor(
     private val processManager: ProcessManager,
     private val sessionManager: com.linuxdroid.core.session.SessionManager,
     private val storage: com.linuxdroid.core.filesystem.EnvironmentStorage,
+    private val antigravityManager: com.linuxdroid.linux.bootstrap.AntigravityManager,
 ) : ViewModel() {
 
     private val log = LinuxDroidLogger(LogSubsystem.APPLICATION)
     val environmentId: String = checkNotNull(savedStateHandle["environmentId"])
     val initialCmd: String? = savedStateHandle["cmd"]
+    val isAntigravitySession: Boolean = initialCmd?.contains("agy") == true || initialCmd?.contains("antigravity") == true
+
+    val antigravityAutomation = if (isAntigravitySession) AntigravityTerminalAutomation().apply { reset() } else null
+
+    private val _authUrl = MutableStateFlow<String?>(null)
+    val authUrl: StateFlow<String?> = _authUrl.asStateFlow()
+
+    val antigravityState = antigravityManager.state
+
+    private val _navigateToWebView = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val navigateToWebView: SharedFlow<String> = _navigateToWebView.asSharedFlow()
+
+    private val _remoteControlUrl = MutableStateFlow<String?>(null)
+    val remoteControlUrl: StateFlow<String?> = _remoteControlUrl.asStateFlow()
+
+    private val _isRemoteControlReady = MutableStateFlow(false)
+    val isRemoteControlReady: StateFlow<Boolean> = _isRemoteControlReady.asStateFlow()
+
+    private val _detectedUrls = MutableStateFlow<List<String>>(emptyList())
+    val detectedUrls: StateFlow<List<String>> = _detectedUrls.asStateFlow()
 
     val environment: StateFlow<Environment?> = dao.observeById(environmentId)
         .map { entity -> entity?.let { EnvironmentMapper.toDomain(it) } }
@@ -59,6 +83,26 @@ class TerminalViewModel @Inject constructor(
     val lines: StateFlow<List<TerminalLineData>> = terminalBuffer.lines
     val cursorRow: StateFlow<Int> = terminalBuffer.activeCursorRow
     val cursorCol: StateFlow<Int> = terminalBuffer.activeCursorCol
+    val terminalTitle: StateFlow<String> = terminalBuffer.terminalTitle
+
+    val currentTheme = MutableStateFlow(com.linuxdroid.core.runtime.terminal.TerminalTheme.MACOS_PRO)
+
+    fun setTheme(theme: com.linuxdroid.core.runtime.terminal.TerminalTheme) {
+        currentTheme.value = theme
+        terminalBuffer.theme = theme
+    }
+
+    fun cycleTheme() {
+        val themes = listOf(
+            com.linuxdroid.core.runtime.terminal.TerminalTheme.MACOS_PRO,
+            com.linuxdroid.core.runtime.terminal.TerminalTheme.MACOS_BASIC,
+            com.linuxdroid.core.runtime.terminal.TerminalTheme.HOMEBREW,
+            com.linuxdroid.core.runtime.terminal.TerminalTheme.SOLARIZED_DARK,
+        )
+        val currentIndex = themes.indexOfFirst { it.name == currentTheme.value.name }
+        val nextTheme = themes[if (currentIndex >= 0) (currentIndex + 1) % themes.size else 0]
+        setTheme(nextTheme)
+    }
 
     private val _isShellActive = MutableStateFlow(false)
     val isShellActive: StateFlow<Boolean> = _isShellActive.asStateFlow()
@@ -83,6 +127,7 @@ class TerminalViewModel @Inject constructor(
     private var currentCols = 80
 
     init {
+        terminalBuffer.onOutputBytes = { bytes -> sendBytes(bytes) }
         viewModelScope.launch(Dispatchers.IO) {
             for (bytes in inputChannel) {
                 val session = ptySession
@@ -173,6 +218,10 @@ class TerminalViewModel @Inject constructor(
                     _isShellActive.value = true
                     _isStarting.value = false
 
+                    if (isAntigravitySession) {
+                        antigravityManager.setRemoteControlState(isRunning = true, isReady = false)
+                    }
+
                     val procHandle = ProcessHandle(
                         handleId = session.sessionId,
                         environmentId = env.id,
@@ -196,12 +245,22 @@ class TerminalViewModel @Inject constructor(
                                 if (LogConfig.generate_log) {
                                     LogFileManager.appendTerminalBytes(env.id, buffer, 0, bytesRead)
                                 }
+                                val textChunk = String(buffer, 0, bytesRead, java.nio.charset.StandardCharsets.UTF_8)
+                                if (isAntigravitySession && antigravityAutomation != null) {
+                                    processAntigravityOutput(textChunk)
+                                } else {
+                                    processOutputForUrls(textChunk)
+                                }
                             } else if (bytesRead < 0) {
                                 break
                             }
                         }
 
                         _isShellActive.value = false
+                        if (isAntigravitySession) {
+                            antigravityManager.setRemoteControlState(isRunning = false, isReady = false)
+                            _isRemoteControlReady.value = false
+                        }
                         val exitCode = session.getExitCode() ?: 0
                         _shellExitCode.value = exitCode
                         val exitMsg = "\r\n[Process completed (exit=$exitCode)]\r\n"
@@ -239,6 +298,9 @@ class TerminalViewModel @Inject constructor(
                     log.error("Failed to spawn interactive shell", e)
                     _isStarting.value = false
                     _isShellActive.value = false
+                    if (isAntigravitySession) {
+                        antigravityManager.setRemoteControlState(isRunning = false, isReady = false)
+                    }
                     val errorMsg = "\r\n[Error launching shell: ${e.message}]\r\n"
                     terminalBuffer.append(errorMsg.toByteArray(), errorMsg.length)
                     if (LogConfig.generate_log) {
@@ -280,62 +342,82 @@ class TerminalViewModel @Inject constructor(
         sendInput("$cmd\n")
     }
 
+    val inputController: com.linuxdroid.core.runtime.terminal.TerminalInputController
+        get() = terminalBuffer.inputController
+
     // ─── Control key helpers ────────────────────────────────────────────────────────
 
-    fun sendCtrlC() = sendBytes(byteArrayOf(0x03)) // SIGINT (ETX)
-    fun sendCtrlD() = sendBytes(byteArrayOf(0x04)) // EOF (EOT)
-    fun sendCtrlL() = sendBytes(byteArrayOf(0x0C)) // Clear (FF)
-    fun sendCtrlZ() = sendBytes(byteArrayOf(0x1A)) // Suspend (SUB)
-    fun sendCtrlA() = sendBytes(byteArrayOf(0x01)) // Start of line
-    fun sendCtrlE() = sendBytes(byteArrayOf(0x05)) // End of line
-    fun sendCtrlU() = sendBytes(byteArrayOf(0x15)) // Kill line
-    fun sendCtrlW() = sendBytes(byteArrayOf(0x17)) // Word rubout
+    fun sendCtrlC() = inputController.sendCtrlC()
+    fun sendCtrlD() = inputController.sendCtrlD()
+    fun sendCtrlL() = inputController.sendCtrlL()
+    fun sendCtrlZ() = inputController.sendCtrlZ()
+    fun sendCtrlA() = inputController.sendCtrlA()
+    fun sendCtrlE() = inputController.sendCtrlE()
+    fun sendCtrlU() = inputController.sendCtrlU()
+    fun sendCtrlW() = inputController.sendCtrlW()
 
-    fun sendTab() = sendBytes(byteArrayOf(0x09)) // Tab
-    fun sendEscape() = sendBytes(byteArrayOf(0x1B)) // ESC
-    fun sendBackspace() = sendBytes(byteArrayOf(0x7F)) // DEL / Backspace
-    fun sendEnter() = sendBytes(byteArrayOf(0x0D)) // CR / Enter
+    fun sendTab(shift: Boolean = false) = inputController.sendTab(shift)
+    fun sendEscape() = inputController.sendEscape()
+    fun sendBackspace() = inputController.sendBackspace()
+    fun sendEnter() = inputController.sendEnter()
 
-    fun sendArrowUp() = sendInput("\u001B[A")
-    fun sendArrowDown() = sendInput("\u001B[B")
-    fun sendArrowRight() = sendInput("\u001B[C")
-    fun sendArrowLeft() = sendInput("\u001B[D")
+    fun sendArrowUp(shift: Boolean = false, alt: Boolean = false, ctrl: Boolean = false) =
+        inputController.sendArrowUp(shift = shift, alt = alt, ctrl = ctrl)
 
-    fun sendHome() = sendInput("\u001B[H")
-    fun sendEnd() = sendInput("\u001B[F")
-    fun sendPageUp() = sendInput("\u001B[5~")
-    fun sendPageDown() = sendInput("\u001B[6~")
-    fun sendInsert() = sendInput("\u001B[2~")
-    fun sendDelete() = sendInput("\u001B[3~")
+    fun sendArrowDown(shift: Boolean = false, alt: Boolean = false, ctrl: Boolean = false) =
+        inputController.sendArrowDown(shift = shift, alt = alt, ctrl = ctrl)
 
-    fun sendFunctionKey(num: Int) {
-        val seq = when (num) {
-            1 -> "\u001BOP"
-            2 -> "\u001BOQ"
-            3 -> "\u001BOR"
-            4 -> "\u001BOS"
-            5 -> "\u001B[15~"
-            6 -> "\u001B[17~"
-            7 -> "\u001B[18~"
-            8 -> "\u001B[19~"
-            9 -> "\u001B[20~"
-            10 -> "\u001B[21~"
-            11 -> "\u001B[23~"
-            12 -> "\u001B[24~"
-            else -> return
-        }
-        sendInput(seq)
-    }
+    fun sendArrowRight(shift: Boolean = false, alt: Boolean = false, ctrl: Boolean = false) =
+        inputController.sendArrowRight(shift = shift, alt = alt, ctrl = ctrl)
+
+    fun sendArrowLeft(shift: Boolean = false, alt: Boolean = false, ctrl: Boolean = false) =
+        inputController.sendArrowLeft(shift = shift, alt = alt, ctrl = ctrl)
+
+    fun sendHome(shift: Boolean = false, alt: Boolean = false, ctrl: Boolean = false) =
+        inputController.sendHome(shift = shift, alt = alt, ctrl = ctrl)
+
+    fun sendEnd(shift: Boolean = false, alt: Boolean = false, ctrl: Boolean = false) =
+        inputController.sendEnd(shift = shift, alt = alt, ctrl = ctrl)
+
+    fun sendPageUp(shift: Boolean = false, alt: Boolean = false, ctrl: Boolean = false) =
+        inputController.sendPageUp(shift = shift, alt = alt, ctrl = ctrl)
+
+    fun sendPageDown(shift: Boolean = false, alt: Boolean = false, ctrl: Boolean = false) =
+        inputController.sendPageDown(shift = shift, alt = alt, ctrl = ctrl)
+
+    fun sendInsert(shift: Boolean = false, alt: Boolean = false, ctrl: Boolean = false) =
+        inputController.sendInsert(shift = shift, alt = alt, ctrl = ctrl)
+
+    fun sendDelete(shift: Boolean = false, alt: Boolean = false, ctrl: Boolean = false) =
+        inputController.sendDelete(shift = shift, alt = alt, ctrl = ctrl)
+
+    fun sendFunctionKey(num: Int, shift: Boolean = false, alt: Boolean = false, ctrl: Boolean = false) =
+        inputController.sendFunctionKey(num, shift = shift, alt = alt, ctrl = ctrl)
+
+    fun sendKey(char: Char, shift: Boolean = false, alt: Boolean = false, ctrl: Boolean = false) =
+        inputController.sendKey(char, shift = shift, alt = alt, ctrl = ctrl)
 
     /**
-     * Resizes the terminal PTY window.
+     * Extracts selected text from the terminal buffer adhering to soft-wrap boundaries.
+     */
+    fun extractSelection(selection: com.linuxdroid.core.runtime.terminal.TerminalSelection): String =
+        terminalBuffer.extractSelection(selection)
+
+    private var resizeJob: Job? = null
+
+    /**
+     * Resizes the terminal PTY window with settling debounce to prevent flooding during keyboard/window animations.
      */
     fun resize(rows: Int, cols: Int) {
         if (rows <= 0 || cols <= 0) return
+        if (rows == currentRows && cols == currentCols) return
         currentRows = rows
         currentCols = cols
         terminalBuffer.resize(rows, cols)
-        viewModelScope.launch(Dispatchers.IO) {
+
+        resizeJob?.cancel()
+        resizeJob = viewModelScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(180) // Settle window/keyboard animation before sending TIOCSWINSZ
             ptySession?.resize(rows, cols)
         }
     }
@@ -353,12 +435,147 @@ class TerminalViewModel @Inject constructor(
         sendCtrlL()
     }
 
+    private fun processAntigravityOutput(chunk: String) {
+        val automation = antigravityAutomation ?: return
+        val actions = automation.processChunk(chunk)
+        for (action in actions) {
+            when (action) {
+                is AntigravityAutomationAction.SendInput -> {
+                    log.info("Antigravity automation sending input: ${action.text.replace("\n", "\\n")}")
+                    sendInput(action.text)
+                }
+                is AntigravityAutomationAction.OpenAuthBrowser -> {
+                    log.info("Antigravity automation detected Google OAuth URL: ${action.url}")
+                    _authUrl.value = action.url
+                    antigravityManager.updateAuthState(
+                        AntigravityAuthState.WAITING_FOR_BROWSER_AUTH,
+                        authUrl = action.url,
+                        statusMessage = "Opening Google Sign-In in Chrome…"
+                    )
+                    openBrowser(action.url)
+                }
+                is AntigravityAutomationAction.NavigateWebView -> {
+                    log.info("Antigravity automation detected Remote Control URL: ${action.url}")
+                    _remoteControlUrl.value = action.url
+                    _isRemoteControlReady.value = true
+                    antigravityManager.updateAuthState(
+                        AntigravityAuthState.CONNECTED,
+                        remoteControlUrl = action.url,
+                        statusMessage = "Remote Control active: ${action.url}"
+                    )
+                    _navigateToWebView.tryEmit(action.url)
+                }
+                is AntigravityAutomationAction.StateChanged -> {
+                    log.info("Antigravity automation state changed: ${action.newState} - ${action.message}")
+                    antigravityManager.updateAuthState(
+                        action.newState,
+                        statusMessage = action.message
+                    )
+                }
+            }
+        }
+        processOutputForUrls(chunk)
+    }
+
+    /**
+     * Submits authorization code to the waiting CLI session.
+     */
+    fun submitAntigravityAuthCode(code: String) {
+        val result = antigravityManager.submitAuthCode(code)
+        if (result is com.linuxdroid.linux.bootstrap.AntigravityManager.AuthCodeSubmitResult.Success ||
+            result is com.linuxdroid.linux.bootstrap.AntigravityManager.AuthCodeSubmitResult.IgnoredDuplicate
+        ) {
+            return
+        }
+        val automation = antigravityAutomation ?: return
+        val actions = automation.submitAuthCode(code)
+        for (action in actions) {
+            when (action) {
+                is AntigravityAutomationAction.SendInput -> {
+                    log.info("Submitting auth code to CLI stdin")
+                    sendInput(action.text)
+                }
+                is AntigravityAutomationAction.StateChanged -> {
+                    antigravityManager.updateAuthState(action.newState, statusMessage = action.message)
+                }
+                else -> {}
+            }
+        }
+    }
+
+    /**
+     * Opens or re-opens the Google OAuth authorization URL in Chrome or default browser.
+     */
+    fun openGoogleAuthBrowser() {
+        val url = _authUrl.value ?: antigravityAutomation?.authUrl ?: return
+        openBrowser(url)
+    }
+
+    /**
+     * Launches Android Chrome using browser Intent with fallback to default browser.
+     */
+    fun openBrowser(urlStr: String) {
+        try {
+            val uri = android.net.Uri.parse(urlStr)
+            val pm = context.packageManager
+            val chromeIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
+                setPackage("com.android.chrome")
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (chromeIntent.resolveActivity(pm) != null) {
+                try {
+                    context.startActivity(chromeIntent)
+                    return
+                } catch (e: Exception) {
+                    log.warn("Failed to launch Chrome explicitly, falling back", e)
+                }
+            }
+            val fallbackIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(fallbackIntent)
+        } catch (e: Exception) {
+            log.error("Failed to open browser intent for $urlStr", e)
+        }
+    }
+
+    private fun processOutputForUrls(chunk: String) {
+        val urlRegex = Regex("""https?://[^\s"'<>]+""")
+        val matches = urlRegex.findAll(chunk).map { it.value.trimEnd('.', ',', ';', ')') }.toList()
+        if (matches.isNotEmpty()) {
+            val current = _detectedUrls.value.toMutableList()
+            var changed = false
+            for (m in matches) {
+                if (!current.contains(m)) {
+                    current.add(0, m)
+                    changed = true
+                }
+                if (m.contains("antigravity.google") || m.contains("remote-control") || (isAntigravitySession && m.startsWith("http"))) {
+                    _remoteControlUrl.value = m
+                    _isRemoteControlReady.value = true
+                    antigravityManager.setRemoteControlState(isRunning = true, remoteControlUrl = m, isReady = true)
+                }
+            }
+            if (changed) {
+                _detectedUrls.value = current.take(10)
+            }
+        }
+    }
+
     private fun closeSession() {
         readJob?.cancel()
         readJob = null
         ptySession?.close()
         ptySession = null
         _isShellActive.value = false
+        if (isAntigravitySession) {
+            antigravityManager.setRemoteControlState(isRunning = false, isReady = false)
+            _isRemoteControlReady.value = false
+            antigravityManager.updateAuthState(
+                AntigravityAuthState.IDLE,
+                statusMessage = "Antigravity CLI exited"
+            )
+        }
     }
 
     /**

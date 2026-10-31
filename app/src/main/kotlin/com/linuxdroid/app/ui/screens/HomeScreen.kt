@@ -94,6 +94,8 @@ fun HomeScreen(
     navController: NavController = rememberNavController(),
     environmentViewModel: EnvironmentViewModel = hiltViewModel(),
     settingsViewModel: SettingsViewModel = hiltViewModel(),
+    antigravityViewModel: com.linuxdroid.app.ui.viewmodel.AntigravityViewModel = hiltViewModel(),
+    codespacesViewModel: com.linuxdroid.app.ui.viewmodel.CodespacesViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val environments by environmentViewModel.environments.collectAsState()
@@ -101,6 +103,11 @@ fun HomeScreen(
     val installStatusText by environmentViewModel.installStatusText.collectAsState()
     val installerLogs by environmentViewModel.installerLogs.collectAsState()
     val authorizationState by settingsViewModel.authorizationState.collectAsState()
+
+    val antigravityState by antigravityViewModel.state.collectAsState()
+    val codespacesAuthState by codespacesViewModel.authState.collectAsState()
+    val codespacesUser by codespacesViewModel.currentUser.collectAsState()
+    val codespacesList by codespacesViewModel.codespaces.collectAsState()
 
     var showStorageDialog by remember { mutableStateOf(false) }
     var showDesktopInfoDialog by remember { mutableStateOf<Environment?>(null) }
@@ -252,6 +259,38 @@ fun HomeScreen(
                     },
                     onStop = {
                         environmentViewModel.stopEnvironment(activeEnv)
+                    }
+                )
+
+                // Google Antigravity CLI Integration
+                AntigravityHomeCard(
+                    environment = activeEnv,
+                    state = antigravityState,
+                    onLaunch = {
+                        if (!antigravityState.isRunning && !antigravityState.authState.isConnecting) {
+                            antigravityViewModel.startAntigravity(activeEnv)
+                        }
+                        navController.navigate(Screen.Antigravity.route(activeEnv.id.value))
+                    },
+                    onOpenWebView = { url ->
+                        navController.navigate(Screen.AntigravityWebView.route(activeEnv.id.value, url))
+                    },
+                    onInstall = {
+                        antigravityViewModel.installAntigravity(activeEnv)
+                    },
+                    onOpenDetails = {
+                        navController.navigate(Screen.Antigravity.route(activeEnv.id.value))
+                    }
+                )
+
+                // GitHub Codespaces Remote Environments
+                CodespacesHomeCard(
+                    environment = activeEnv,
+                    authState = codespacesAuthState,
+                    user = codespacesUser,
+                    codespaces = codespacesList,
+                    onOpenCodespaces = {
+                        navController.navigate(Screen.Codespaces.route(activeEnv.id.value))
                     }
                 )
 
@@ -1096,6 +1135,324 @@ private fun NeuCliLaunchCard(
                     Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(if (isRunning) "Resume Terminal" else "Open Terminal", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Clean Neumorphic Home Card for Official Google Antigravity CLI.
+ */
+@Composable
+private fun AntigravityHomeCard(
+    environment: Environment,
+    state: AntigravityState,
+    onLaunch: () -> Unit,
+    onOpenWebView: ((String) -> Unit)? = null,
+    onInstall: () -> Unit,
+    onOpenDetails: () -> Unit,
+) {
+    val neuColors = NeuTheme.colors
+    val isInstalled = state.status == AntigravityStatus.INSTALLED || state.status == AntigravityStatus.RUNNING
+    val isRunning = state.status == AntigravityStatus.RUNNING
+    val isRemoteReady = state.isRemoteControlReady && state.remoteControlUrl != null
+
+    NeuCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = 4.dp,
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Surface(
+                modifier = Modifier
+                    .size(68.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = if (isRemoteReady && onOpenWebView != null) { { onOpenWebView(state.remoteControlUrl!!) } }
+                        else if (isInstalled) onLaunch
+                        else onInstall,
+                    ),
+                shape = RoundedCornerShape(16.dp),
+                color = if (isRunning) neuColors.success.copy(alpha = 0.15f)
+                else if (isInstalled) neuColors.primaryAccent.copy(alpha = 0.12f)
+                else neuColors.surfacePressed,
+                border = androidx.compose.foundation.BorderStroke(
+                    width = if (isRunning) 1.5.dp else 1.dp,
+                    color = if (isRunning) neuColors.success.copy(alpha = 0.75f)
+                    else neuColors.primaryAccent.copy(alpha = 0.40f),
+                ),
+                shadowElevation = if (isRunning) 4.dp else 2.dp,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.CloudQueue,
+                        contentDescription = "Antigravity CLI",
+                        tint = if (isRunning) neuColors.success else neuColors.primaryAccent,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onOpenDetails,
+                    ),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Antigravity CLI",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                        ),
+                        color = neuColors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Surface(
+                        color = if (isRunning) neuColors.success.copy(alpha = 0.15f)
+                        else if (isInstalled) neuColors.primaryAccent.copy(alpha = 0.15f)
+                        else neuColors.surfacePressed,
+                        shape = RoundedCornerShape(6.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            0.5.dp,
+                            if (isRunning) neuColors.success.copy(alpha = 0.4f)
+                            else if (isInstalled) neuColors.primaryAccent.copy(alpha = 0.4f)
+                            else neuColors.borderHighlight.copy(alpha = 0.4f),
+                        ),
+                    ) {
+                        Text(
+                            text = if (isRemoteReady) "● WEB READY"
+                            else if (isRunning) "● RUNNING"
+                            else if (state.installedVersion != null) "v${state.installedVersion}"
+                            else if (state.status == AntigravityStatus.INSTALLING) "INSTALLING"
+                            else "NOT INSTALLED",
+                            fontFamily = SfMono,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isRunning) neuColors.success
+                            else if (isInstalled) neuColors.primaryAccent
+                            else if (state.status == AntigravityStatus.INSTALLING) neuColors.warning
+                            else neuColors.textMuted,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            maxLines = 1,
+                        )
+                    }
+                }
+
+                Text(
+                    text = if (state.statusMessage != null) state.statusMessage!!
+                    else "Autonomous AI coding assistant inside PRoot userspace",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = neuColors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                if (state.status == AntigravityStatus.INSTALLING || state.status == AntigravityStatus.UPDATING) {
+                    LinearProgressIndicator(
+                        progress = { state.progress },
+                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                        color = neuColors.primaryAccent,
+                        trackColor = neuColors.surfacePressed
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (isRemoteReady && onOpenWebView != null) {
+                        OutlinedButton(
+                            onClick = { onOpenWebView(state.remoteControlUrl!!) },
+                            modifier = Modifier.weight(1f).height(32.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(14.dp), tint = neuColors.primaryAccent)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Remote Web", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = neuColors.primaryAccent)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = if (isInstalled) onLaunch else onInstall,
+                        modifier = Modifier.weight(1f).height(32.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        enabled = !state.status.isBusy
+                    ) {
+                        Icon(
+                            if (isRunning) Icons.Default.Terminal
+                            else if (isInstalled) Icons.Default.PlayArrow
+                            else Icons.Default.Download,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            if (isRunning) "CLI Terminal"
+                            else if (isInstalled) "Launch Antigravity"
+                            else if (state.status == AntigravityStatus.FAILED) "Retry Install"
+                            else "Install Antigravity",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onOpenDetails,
+                        modifier = Modifier.height(32.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(13.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Clean Neumorphic Home Card for GitHub Codespaces.
+ */
+@Composable
+private fun CodespacesHomeCard(
+    environment: Environment,
+    authState: CodespaceAuthState,
+    user: GitHubUser?,
+    codespaces: List<CodespaceItem>,
+    onOpenCodespaces: () -> Unit,
+) {
+    val neuColors = NeuTheme.colors
+    val isAuthenticated = authState == CodespaceAuthState.AUTHENTICATED
+
+    NeuCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = 4.dp,
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Surface(
+                modifier = Modifier
+                    .size(68.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onOpenCodespaces,
+                    ),
+                shape = RoundedCornerShape(16.dp),
+                color = if (isAuthenticated) neuColors.primaryAccent.copy(alpha = 0.12f)
+                else neuColors.surfacePressed,
+                border = androidx.compose.foundation.BorderStroke(
+                    width = 1.dp,
+                    color = neuColors.primaryAccent.copy(alpha = if (isAuthenticated) 0.60f else 0.30f),
+                ),
+                shadowElevation = 2.dp,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Cloud,
+                        contentDescription = "Codespaces",
+                        tint = if (isAuthenticated) neuColors.primaryAccent else neuColors.textMuted,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onOpenCodespaces,
+                    ),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Codespaces",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                        ),
+                        color = neuColors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Surface(
+                        color = if (isAuthenticated) neuColors.success.copy(alpha = 0.12f) else neuColors.surfacePressed,
+                        shape = RoundedCornerShape(6.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            0.5.dp,
+                            if (isAuthenticated) neuColors.success.copy(alpha = 0.4f) else neuColors.borderHighlight.copy(alpha = 0.4f),
+                        ),
+                    ) {
+                        Text(
+                            text = if (isAuthenticated && user != null) "@${user.login}"
+                            else if (isAuthenticated) "AUTHENTICATED"
+                            else "SIGNED OUT",
+                            fontFamily = SfMono,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isAuthenticated) neuColors.success else neuColors.textMuted,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            maxLines = 1,
+                        )
+                    }
+                }
+
+                Text(
+                    text = if (isAuthenticated && codespaces.isNotEmpty())
+                        "${codespaces.size} environment${if (codespaces.size > 1) "s" else ""} · ${codespaces.count { it.state == CodespaceState.AVAILABLE }} active"
+                    else "Connect to GitHub cloud development environments",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = neuColors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                OutlinedButton(
+                    onClick = onOpenCodespaces,
+                    modifier = Modifier.fillMaxWidth().height(32.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Icon(
+                        if (isAuthenticated) Icons.Default.Lan else Icons.Default.VpnKey,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        if (isAuthenticated) "Manage Codespaces" else "Connect GitHub",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         }

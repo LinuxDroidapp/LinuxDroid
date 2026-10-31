@@ -239,4 +239,38 @@ object AppModule {
     fun provideHostStorage(
         storageManager: AndroidStorageManager,
     ): HostStorage = AndroidHostStorage(storageManager.sharedDirectory)
+
+    @Provides
+    @Singleton
+    fun provideAntigravityManager(
+        @ApplicationContext context: Context,
+        storage: EnvironmentStorage,
+        runtime: RuntimeBackend,
+    ): com.linuxdroid.linux.bootstrap.AntigravityManager = com.linuxdroid.linux.bootstrap.AntigravityManager(
+        context = context,
+        storage = storage,
+        runtimeBackend = runtime,
+    )
+
+    @Provides
+    @Singleton
+    fun provideSecureCredentialStorage(
+        @ApplicationContext context: Context,
+    ): com.linuxdroid.core.storage.SecureCredentialStorage = com.linuxdroid.core.storage.SecureCredentialStorage(context)
+
+    @Provides
+    @Singleton
+    fun provideGitHubAuthManager(
+        @ApplicationContext context: Context,
+        secureStorage: com.linuxdroid.core.storage.SecureCredentialStorage,
+    ): com.linuxdroid.core.network.GitHubAuthManager = com.linuxdroid.core.network.GitHubAuthManager(
+        context = context,
+        secureStorage = secureStorage,
+    )
+
+    @Provides
+    @Singleton
+    fun provideCodespacesManager(
+        authManager: com.linuxdroid.core.network.GitHubAuthManager,
+    ): com.linuxdroid.core.network.CodespacesManager = com.linuxdroid.core.network.CodespacesManager(authManager)
 }

@@ -23,7 +23,9 @@ kotlin {
 dependencies {
     implementation(project(":core:core-model"))
     implementation(project(":core:core-logging"))
+    implementation(project(":core:core-storage"))
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
     testImplementation(libs.truth)
 }

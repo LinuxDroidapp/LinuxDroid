@@ -30,6 +30,9 @@
     <!-- Audio recording for Linux audio -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- Optional Application Overlay for System-Wide Floating Terminal -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <application
         android:name=".LinuxDroidApplication"
         android:allowBackup="false"
@@ -55,6 +58,26 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Deep Link Intent Filter for Antigravity & OAuth Callbacks -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="antigravity" android:host="auth" />
+                <data android:scheme="antigravity" android:host="oauth" />
+                <data android:scheme="linuxdroid" android:host="oauth" />
+                <data android:scheme="linuxdroid" android:host="auth" />
+                <data android:scheme="google.antigravity" android:host="oauth" />
+            </intent-filter>
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="antigravity.google" android:pathPrefix="/oauth" />
+                <data android:scheme="https" android:host="antigravity.google.com" android:pathPrefix="/oauth" />
+            </intent-filter>
         </activity>
 
         <!-- Linux Session Foreground Service -->
@@ -67,6 +90,12 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="LinuxDroid Linux Session" />
         </service>
+
+        <!-- System-Wide Floating Terminal Service -->
+        <service
+            android:name=".service.FloatingTerminalService"
+            android:exported="false"
+            android:stopWithTask="false" />
 
         <!-- FileProvider for Sharing Diagnostic Logs -->
         <provider

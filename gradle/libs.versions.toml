@@ -6,8 +6,8 @@ compileSdk = "37"
 minSdk = "36"
 targetSdk = "37"
 buildTools = "36.0.0"
-ndk = "30.0.16248370"
-cmake = "4.4.3"
+ndk = "29.0.14206865"
+cmake = "3.22.1"
 
 # Jetpack / AndroidX
 androidx-core-ktx = "1.15.0"
