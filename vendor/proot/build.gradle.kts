@@ -10,14 +10,18 @@ android {
     compileSdk = 37
     ndkVersion = "29.0.14206865"
 
+    val hasPrebuilt = file("dist/android/arm64-v8a/libproot.so").exists()
+
     defaultConfig {
         minSdk = 28
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
-        externalNativeBuild {
-            cmake {
-                arguments("-DANDROID_PLATFORM=android-28")
+        if (!hasPrebuilt) {
+            externalNativeBuild {
+                cmake {
+                    arguments("-DANDROID_PLATFORM=android-28")
+                }
             }
         }
     }
@@ -27,10 +31,18 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    externalNativeBuild {
-        cmake {
-            path = file("CMakeLists.txt")
-            version = "3.22.1"
+    if (!hasPrebuilt) {
+        externalNativeBuild {
+            cmake {
+                path = file("CMakeLists.txt")
+                version = "3.22.1"
+            }
+        }
+    } else {
+        sourceSets {
+            named("main") {
+                jniLibs.srcDir("dist/android")
+            }
         }
     }
 

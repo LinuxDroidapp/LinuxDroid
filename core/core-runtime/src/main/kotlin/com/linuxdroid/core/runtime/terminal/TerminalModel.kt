@@ -13,6 +13,7 @@ data class StyledSpan(
     val isDim: Boolean = false,
     val isItalic: Boolean = false,
     val isStrikethrough: Boolean = false,
+    val hyperlinkUrl: String? = null,
 )
 
 /**
@@ -43,6 +44,7 @@ data class TerminalChar(
     var isDim: Boolean = false,
     var isItalic: Boolean = false,
     var isStrikethrough: Boolean = false,
+    var hyperlinkUrl: String? = null,
 ) {
     val effectiveFg: Long
         get() = if (isInverse) (if (bgColor != 0L) bgColor else 0xFF1E1E1EL) else fgColor
@@ -60,6 +62,7 @@ data class TerminalChar(
         isDim = isDim,
         isItalic = isItalic,
         isStrikethrough = isStrikethrough,
+        hyperlinkUrl = hyperlinkUrl,
     )
 }
 

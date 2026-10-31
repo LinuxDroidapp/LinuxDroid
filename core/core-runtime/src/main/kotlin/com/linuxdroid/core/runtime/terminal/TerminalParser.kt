@@ -81,7 +81,7 @@ class TerminalParser(
                     val nextTab = ((grid.cursorCol / 8) + 1) * 8
                     val spaces = minOf(grid.cols - 1, nextTab) - grid.cursorCol
                     for (s in 0 until maxOf(1, spaces)) {
-                        grid.insertChar(' ', currentAttrs)
+                        grid.insertChar(' ', currentAttrs) { row -> scrollback.addLine(row) }
                     }
                     i++
                 }
@@ -89,7 +89,7 @@ class TerminalParser(
                     i++
                 }
                 else -> {
-                    grid.insertChar(c, currentAttrs)
+                    grid.insertChar(c, currentAttrs) { row -> scrollback.addLine(row) }
                     i++
                 }
             }
@@ -271,6 +271,10 @@ class TerminalParser(
             "?1" -> { // Application Cursor Keys
                 onModeChanged(1, enabled)
             }
+            "?7" -> { // Auto Wrap Mode (DECAWM)
+                grid.isAutoWrapEnabled = enabled
+                onModeChanged(7, enabled)
+            }
             "?2004" -> { // Bracketed Paste Mode
                 onModeChanged(2004, enabled)
             }
@@ -290,7 +294,7 @@ class TerminalParser(
                 1 -> { currentAttrs.isBold = true; idx++ }
                 2 -> { currentAttrs.isDim = true; idx++ }
                 3 -> { currentAttrs.isItalic = true; idx++ }
-                4 -> { currentAttrs.isUnderline = true; idx++ }
+                4, 21 -> { currentAttrs.isUnderline = true; idx++ }
                 7 -> { currentAttrs.isInverse = true; idx++ }
                 9 -> { currentAttrs.isStrikethrough = true; idx++ }
                 22 -> { currentAttrs.isBold = false; currentAttrs.isDim = false; idx++ }
@@ -360,8 +364,14 @@ class TerminalParser(
         if (parts.size == 2) {
             val command = parts[0].toIntOrNull() ?: return
             val value = parts[1]
-            if (command == 0 || command == 2) {
-                onTitleChanged(value)
+            when (command) {
+                0, 2 -> onTitleChanged(value)
+                8 -> {
+                    // OSC 8 ;; <url> or OSC 8 ; <params> ; <url>
+                    val urlParts = value.split(";", limit = 2)
+                    val url = if (urlParts.size == 2) urlParts[1] else urlParts[0]
+                    currentAttrs.hyperlinkUrl = url.trim().ifEmpty { null }
+                }
             }
         }
     }

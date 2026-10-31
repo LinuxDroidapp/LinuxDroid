@@ -195,7 +195,9 @@ dependencies {
 val syncProotArtifacts = tasks.register("syncProotArtifacts") {
     group = "distribution"
     description = "Synchronizes standalone PRoot binaries, loader, MANIFEST, and JNI libs from vendor/proot"
-    dependsOn(":vendor:proot:assembleRelease")
+    if (!file("src/main/assets/proot/arm64-v8a/proot").exists()) {
+        dependsOn(":vendor:proot:assembleRelease")
+    }
 
     val assetsTarget = file("src/main/assets/proot/arm64-v8a")
     val jniLibsTarget = file("src/main/jniLibs/arm64-v8a")

@@ -86,8 +86,10 @@ class AntigravityManager(
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var activePtySession: PtySession? = null
+    private var registeredTerminalSession: PtySession? = null
     private var activeEnvironmentId: String? = null
     private var backgroundReadJob: Job? = null
+    private var authTimeoutJob: Job? = null
     private val automation = AntigravityTerminalAutomation()
 
     private val _navigateToWebView = MutableSharedFlow<String>(replay = 1, extraBufferCapacity = 8)
@@ -669,6 +671,14 @@ class AntigravityManager(
         statusMessage: String? = null,
         errorMessage: String? = null,
     ) {
+        if (authState == AntigravityAuthState.CONNECTED ||
+            authState == AntigravityAuthState.CANCELLED ||
+            authState == AntigravityAuthState.IDLE ||
+            authState == AntigravityAuthState.ERROR
+        ) {
+            authTimeoutJob?.cancel()
+            authTimeoutJob = null
+        }
         val current = _state.value
         _state.value = current.copy(
             authState = authState,
@@ -679,6 +689,27 @@ class AntigravityManager(
             statusMessage = statusMessage ?: current.statusMessage,
             errorMessage = errorMessage ?: current.errorMessage,
         )
+    }
+
+    /**
+     * Registers an interactive terminal PTY session from TerminalViewModel
+     * so that OAuth callbacks and manual authorization submissions can write
+     * directly to this session.
+     */
+    fun registerActiveTerminalSession(session: PtySession, envId: String) {
+        log.info("Registering active terminal PTY session for env: $envId (pid=${session.pid})")
+        registeredTerminalSession = session
+        activeEnvironmentId = envId
+    }
+
+    /**
+     * Unregisters the terminal PTY session when it closes.
+     */
+    fun unregisterActiveTerminalSession(session: PtySession? = null) {
+        if (session == null || registeredTerminalSession == session) {
+            log.info("Unregistering active terminal PTY session")
+            registeredTerminalSession = null
+        }
     }
 
     /**
@@ -954,7 +985,7 @@ class AntigravityManager(
         }
 
         // 3. Verify PTY session is alive
-        val session = activePtySession
+        val session = activePtySession ?: registeredTerminalSession
         if (session == null || !session.isAlive()) {
             updateAuthState(
                 AntigravityAuthState.ERROR,
@@ -968,7 +999,7 @@ class AntigravityManager(
         val isReadyForCode = currentAuthState in setOf(
             AntigravityAuthState.WAITING_FOR_BROWSER_AUTH,
             AntigravityAuthState.WAITING_FOR_AUTH_CODE
-        ) || automation.isWaitingForAuthCode
+        ) || automation.isWaitingForAuthCode || (registeredTerminalSession != null && registeredTerminalSession!!.isAlive())
 
         if (!isReadyForCode) {
             return AuthCodeSubmitResult.Error("Antigravity CLI process is not ready to receive input yet. Your code has been retained.", recoverable = true)
@@ -980,7 +1011,7 @@ class AntigravityManager(
             return AuthCodeSubmitResult.IgnoredDuplicate
         }
 
-        // 6. Write code + exactly one Enter (\r) to PTY
+        // 6. Write code + exactly one Enter (\n) to PTY
         val actions = automation.submitAuthCode(cleanCode)
         for (action in actions) {
             when (action) {
@@ -1007,6 +1038,21 @@ class AntigravityManager(
                 else -> {}
             }
         }
+        // Start authentication timeout (35 seconds) to avoid indefinite loading
+        authTimeoutJob?.cancel()
+        authTimeoutJob = scope.launch {
+            kotlinx.coroutines.delay(35_000)
+            if (_state.value.authState == AntigravityAuthState.AUTHENTICATING ||
+                _state.value.authState == AntigravityAuthState.SUBMITTING_AUTH_CODE
+            ) {
+                hasSubmittedAuthCode.set(false)
+                updateAuthState(
+                    AntigravityAuthState.ERROR,
+                    errorMessage = "Authentication timed out. Tap Start Again or verify your code and retry.",
+                    statusMessage = "Authentication timed out"
+                )
+            }
+        }
         log.info("Successfully submitted authorization code via $source (${cleanCode.length} chars)")
         return AuthCodeSubmitResult.Success
     }
@@ -1016,6 +1062,8 @@ class AntigravityManager(
      */
     fun cancelAuthentication() {
         if (_state.value.authState == AntigravityAuthState.CANCELLED) return
+        authTimeoutJob?.cancel()
+        authTimeoutJob = null
         hasSubmittedAuthCode.set(false)
         activeOAuthState = null
         automation.notifyCancelled()
@@ -1028,6 +1076,7 @@ class AntigravityManager(
             activePtySession?.close()
         } catch (_: Exception) {}
         activePtySession = null
+        registeredTerminalSession = null
         activeEnvironmentId = null
         val current = _state.value
         _state.value = current.copy(
@@ -1050,6 +1099,8 @@ class AntigravityManager(
      * Stops the background Antigravity CLI process, closes the PTY session, releases resources.
      */
     fun stopAntigravity() {
+        authTimeoutJob?.cancel()
+        authTimeoutJob = null
         hasSubmittedAuthCode.set(false)
         activeOAuthState = null
         if (_state.value.authState == AntigravityAuthState.IDLE && activePtySession == null) {
@@ -1066,6 +1117,7 @@ class AntigravityManager(
             activePtySession?.close()
         } catch (_: Exception) {}
         activePtySession = null
+        registeredTerminalSession = null
         activeEnvironmentId = null
         automation.notifyIdle()
         setRemoteControlState(isRunning = false, isReady = false)

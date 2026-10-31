@@ -86,6 +86,7 @@ class AntigravityTerminalAutomation {
     companion object {
         // Standard ASCII / VT terminal key encodings
         const val KEY_ENTER = "\r"
+        const val KEY_NEWLINE = "\n"
         const val KEY_UP_ARROW = "\u001B[A"
 
         // Maximum chunks allowed without progress after sending Enter before flagging failure
@@ -728,7 +729,7 @@ class AntigravityTerminalAutomation {
     /**
      * Submits authorization code to the waiting CLI session.
      * Never stores or logs the actual authorization code.
-     * Sends the code followed by exactly one Enter key (\r).
+     * Sends the code followed by exactly one standard newline (\n).
      */
     fun submitAuthCode(code: String): List<AntigravityAutomationAction> {
         val actions = mutableListOf<AntigravityAutomationAction>()
@@ -737,7 +738,7 @@ class AntigravityTerminalAutomation {
             isWaitingForAuthCode = false
             currentState = AntigravityAuthState.SUBMITTING_AUTH_CODE
             actions.add(AntigravityAutomationAction.StateChanged(currentState, "Verifying authorization…"))
-            actions.add(AntigravityAutomationAction.SendInput("$cleanCode$KEY_ENTER", "Authorization Code"))
+            actions.add(AntigravityAutomationAction.SendInput("$cleanCode$KEY_NEWLINE", "Authorization Code"))
             currentState = AntigravityAuthState.AUTHENTICATING
             actions.add(AntigravityAutomationAction.StateChanged(currentState, "Verifying authorization…"))
             recordDiagnostics(

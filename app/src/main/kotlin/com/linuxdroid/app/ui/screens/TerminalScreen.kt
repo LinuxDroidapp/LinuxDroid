@@ -63,6 +63,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
@@ -1556,13 +1558,19 @@ private fun TerminalWindowCard(
         elevation = if (isFloatingMode) 6.dp else 3.dp
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val fontSizeSp = 12.sp
-            val lineHeightSp = 16.sp
-            val charWidthDp = with(density) { (fontSizeSp * 0.6f).toDp() }
-            val lineHeightDp = with(density) { lineHeightSp.toDp() }
+            val textMeasurer = rememberTextMeasurer()
+            val textStyle = TextStyle(fontFamily = SfMono, fontSize = 12.sp, lineHeight = 16.sp)
+            val measuredChar = remember(density) {
+                textMeasurer.measure("W", style = textStyle)
+            }
+            val charWidthDp = with(density) { measuredChar.size.width.toDp().coerceAtLeast(6.dp) }
+            val lineHeightDp = with(density) { 16.sp.toDp() }
 
-            val calculatedCols = (maxWidth / charWidthDp).toInt().coerceIn(20, 240)
-            val calculatedRows = (maxHeight / lineHeightDp).toInt().coerceIn(5, 120)
+            // Account for header (40dp) and lazy column padding (horizontal = 20dp, vertical = 12dp)
+            val availableWidth = (maxWidth - 20.dp).coerceAtLeast(60.dp)
+            val availableHeight = (maxHeight - 53.dp).coerceAtLeast(60.dp)
+            val calculatedCols = (availableWidth / charWidthDp).toInt().coerceIn(20, 240)
+            val calculatedRows = (availableHeight / lineHeightDp).toInt().coerceIn(5, 120)
 
             LaunchedEffect(calculatedRows, calculatedCols) {
                 viewModel.resize(calculatedRows, calculatedCols)
@@ -1657,10 +1665,14 @@ private fun TerminalWindowCard(
                     ) {
                         itemsIndexed(lines) { index, lineData ->
                             val isLastLine = index == lines.size - 1
-                            val isCursorLine = if (lines.size <= 30) (index == cursorRow) else isLastLine
+                            val isCursorLine = (index == cursorRow)
                             val hasSearchMatch = searchQuery.isNotBlank() && lineData.rawText.contains(searchQuery, ignoreCase = true)
-                            val charWidthPx = with(density) { (12.sp * 0.6f).toPx() }
-                            val lineHeightPx = with(density) { 16.sp.toPx() }
+                            val charWidthPx = with(density) { charWidthDp.toPx() }
+                            val lineHeightPx = with(density) { lineHeightDp.toPx() }
+                            val urlRegex = remember { Regex("""https?://[^\s"'<>]+""") }
+                            val detectedUrlRanges = remember(lineData.rawText) {
+                                urlRegex.findAll(lineData.rawText).map { it.range to it.value }.toList()
+                            }
 
                             val annotatedString = buildAnnotatedString {
                                 var charIdx = 0
@@ -1670,9 +1682,12 @@ private fun TerminalWindowCard(
                                         isDarkTheme = currentTheme.isDark,
                                         textPrimary = Color(if (currentTheme.isDark) 0xFFF1F5F9L else 0xFF0F172AL)
                                     )
+                                    val spanStart = length
+                                    val hasExplicitLink = !span.hyperlinkUrl.isNullOrBlank()
                                     for (ch in span.text) {
                                         val isAtCursor = isCursorLine && isShellActive && charIdx == cursorCol
                                         val isSelected = activeSelection?.contains(index, charIdx) == true
+                                        val isUrlChar = hasExplicitLink || detectedUrlRanges.any { (range, _) -> charIdx in range }
 
                                         val defaultBg = if (isSelected) {
                                             Color(currentTheme.selectionBackground)
@@ -1689,19 +1704,30 @@ private fun TerminalWindowCard(
                                         val style = SpanStyle(
                                             color = if (isAtCursor && !isSelected) {
                                                 if (currentTheme.isDark) Color.Black else Color.White
+                                            } else if (isUrlChar) {
+                                                neuColors.primaryAccent
                                             } else {
                                                 spanColor
                                             },
                                             fontFamily = SfMono,
                                             fontSize = 12.sp,
                                             fontWeight = if (span.isBold || isAtCursor) FontWeight.Bold else FontWeight.Normal,
-                                            textDecoration = if (span.isUnderline) TextDecoration.Underline else TextDecoration.None,
+                                            textDecoration = if (span.isUnderline || isUrlChar) TextDecoration.Underline else TextDecoration.None,
                                             background = defaultBg
                                         )
                                         withStyle(style) {
                                             append(ch)
                                         }
                                         charIdx++
+                                    }
+                                    if (hasExplicitLink) {
+                                        runCatching {
+                                            addLink(
+                                                LinkAnnotation.Url(span.hyperlinkUrl!!),
+                                                spanStart,
+                                                length
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1712,8 +1738,17 @@ private fun TerminalWindowCard(
                                         .fillMaxWidth()
                                         .pointerInput(lineData.rawText) {
                                             detectTapGestures(
-                                                onTap = {
-                                                    if (activeSelection != null) {
+                                                onTap = { offset ->
+                                                    val clickedCol = (offset.x / charWidthPx).toInt().coerceIn(0, maxOf(0, lineData.rawText.length - 1))
+                                                    val matchedUrl = detectedUrlRanges.firstOrNull { (range, _) -> clickedCol in range }?.second
+                                                    if (matchedUrl != null) {
+                                                        if (matchedUrl.contains("antigravity.google.com/r/") || matchedUrl.contains("remote-control")) {
+                                                            val envId = viewModel.environment.value?.id?.value ?: viewModel.environmentId
+                                                            navController.navigate(Screen.AntigravityWebView.route(envId, matchedUrl))
+                                                        } else {
+                                                            viewModel.openBrowser(matchedUrl)
+                                                        }
+                                                    } else if (activeSelection != null) {
                                                         onSelectionChanged(null)
                                                     } else {
                                                         focusRequester.requestFocus()
@@ -1740,8 +1775,9 @@ private fun TerminalWindowCard(
                                         fontFamily = SfMono,
                                         fontSize = 12.sp,
                                         lineHeight = 16.sp,
+                                        softWrap = false,
                                     )
-                                    if (isLastLine && isShellActive && cursorCol >= lineData.rawText.length) {
+                                    if (isCursorLine && isShellActive && cursorCol >= lineData.rawText.length) {
                                         Spacer(Modifier.width(1.dp))
                                         Box(
                                             modifier = Modifier

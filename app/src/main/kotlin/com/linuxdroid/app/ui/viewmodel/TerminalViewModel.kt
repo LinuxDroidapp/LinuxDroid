@@ -56,7 +56,7 @@ class TerminalViewModel @Inject constructor(
     val initialCmd: String? = savedStateHandle["cmd"]
     val isAntigravitySession: Boolean = initialCmd?.contains("agy") == true || initialCmd?.contains("antigravity") == true
 
-    val antigravityAutomation = if (isAntigravitySession) AntigravityTerminalAutomation().apply { reset() } else null
+    val antigravityAutomation = AntigravityTerminalAutomation().apply { reset() }
 
     private val _authUrl = MutableStateFlow<String?>(null)
     val authUrl: StateFlow<String?> = _authUrl.asStateFlow()
@@ -214,6 +214,7 @@ class TerminalViewModel @Inject constructor(
                         command = shellCommand
                     )
                     ptySession = session
+                    antigravityManager.registerActiveTerminalSession(session, env.id.value)
                     terminalBuffer.resize(currentRows, currentCols)
                     _isShellActive.value = true
                     _isStarting.value = false
@@ -246,7 +247,13 @@ class TerminalViewModel @Inject constructor(
                                     LogFileManager.appendTerminalBytes(env.id, buffer, 0, bytesRead)
                                 }
                                 val textChunk = String(buffer, 0, bytesRead, java.nio.charset.StandardCharsets.UTF_8)
-                                if (isAntigravitySession && antigravityAutomation != null) {
+                                if (isAntigravitySession ||
+                                    textChunk.contains("agy") ||
+                                    textChunk.contains("antigravity") ||
+                                    textChunk.contains("accounts.google.com") ||
+                                    textChunk.contains("authorization code") ||
+                                    antigravityAutomation.isWaitingForAuthCode
+                                ) {
                                     processAntigravityOutput(textChunk)
                                 } else {
                                     processOutputForUrls(textChunk)
@@ -436,8 +443,7 @@ class TerminalViewModel @Inject constructor(
     }
 
     private fun processAntigravityOutput(chunk: String) {
-        val automation = antigravityAutomation ?: return
-        val actions = automation.processChunk(chunk)
+        val actions = antigravityAutomation.processChunk(chunk)
         for (action in actions) {
             when (action) {
                 is AntigravityAutomationAction.SendInput -> {
@@ -487,8 +493,7 @@ class TerminalViewModel @Inject constructor(
         ) {
             return
         }
-        val automation = antigravityAutomation ?: return
-        val actions = automation.submitAuthCode(code)
+        val actions = antigravityAutomation.submitAuthCode(code)
         for (action in actions) {
             when (action) {
                 is AntigravityAutomationAction.SendInput -> {
@@ -565,8 +570,12 @@ class TerminalViewModel @Inject constructor(
     private fun closeSession() {
         readJob?.cancel()
         readJob = null
-        ptySession?.close()
-        ptySession = null
+        val session = ptySession
+        if (session != null) {
+            antigravityManager.unregisterActiveTerminalSession(session)
+            session.close()
+            ptySession = null
+        }
         _isShellActive.value = false
         if (isAntigravitySession) {
             antigravityManager.setRemoteControlState(isRunning = false, isReady = false)

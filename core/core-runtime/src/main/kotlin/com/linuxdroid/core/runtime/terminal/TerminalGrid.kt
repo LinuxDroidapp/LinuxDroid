@@ -38,6 +38,8 @@ class TerminalGrid(
     var isAlternateScreen: Boolean = false
         private set
 
+    var isAutoWrapEnabled: Boolean = true
+
     init {
         initGrids()
     }
@@ -112,7 +114,16 @@ class TerminalGrid(
         return savedCharAttrs.copy()
     }
 
-    fun insertChar(c: Char, attrs: TerminalChar) {
+    fun insertChar(c: Char, attrs: TerminalChar, onScrollback: (ArrayList<TerminalChar>) -> Unit = {}) {
+        if (cursorCol >= cols) {
+            if (isAutoWrapEnabled) {
+                lineFeed(onScrollback)
+                cursorCol = 0
+            } else {
+                cursorCol = cols - 1
+            }
+        }
+
         val grid = activeScreen
         ensureRowCapacity(grid, cursorRow)
         val line = grid[cursorRow]
@@ -129,7 +140,7 @@ class TerminalGrid(
         }
 
         cursorCol++
-        if (cursorCol >= cols) {
+        if (!isAutoWrapEnabled && cursorCol >= cols) {
             cursorCol = cols - 1
         }
     }
@@ -233,13 +244,12 @@ class TerminalGrid(
                 }
             }
             1 -> { // From start of line to cursor
-                for (idx in 0 until minOf(cursorCol, line.size)) {
+                for (idx in 0 until minOf(cursorCol + 1, line.size)) {
                     line[idx] = TerminalChar(' ', 0xFFE0E0E0L, 0x00000000L)
                 }
             }
-            2 -> { // Entire line
+            2 -> { // Entire line (cursor position is preserved)
                 line.clear()
-                cursorCol = 0
             }
         }
     }

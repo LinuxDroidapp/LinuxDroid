@@ -329,7 +329,7 @@ class AntigravityTerminalAutomationTest {
         val actions = automation.submitAuthCode("  4/0AY0e-secret-token \r\n ")
         val sendInputs = actions.filterIsInstance<AntigravityAutomationAction.SendInput>()
         assertThat(sendInputs).hasSize(1)
-        assertThat(sendInputs[0].text).isEqualTo("4/0AY0e-secret-token\r")
+        assertThat(sendInputs[0].text).isEqualTo("4/0AY0e-secret-token\n")
         assertThat(sendInputs[0].description).isEqualTo("Authorization Code")
         assertThat(automation.isWaitingForAuthCode).isFalse()
 

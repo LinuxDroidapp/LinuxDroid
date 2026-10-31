@@ -212,8 +212,9 @@ class TerminalBuffer(
             result.add(TerminalLineData(emptyList()))
         }
 
+        val scrollbackCount = if (!grid.isAlternateScreen) scrollback.lines.size else 0
         _lines.value = result
-        _activeCursorRow.value = grid.cursorRow
+        _activeCursorRow.value = scrollbackCount + grid.cursorRow
         _activeCursorCol.value = grid.cursorCol
         _isCursorVisible.value = parser.isCursorVisible
     }
@@ -242,6 +243,7 @@ class TerminalBuffer(
         var spanDim = lineChars[0].isDim
         var spanItalic = lineChars[0].isItalic
         var spanStrikethrough = lineChars[0].isStrikethrough
+        var spanHyperlinkUrl = lineChars[0].hyperlinkUrl
 
         for (tc in lineChars) {
             val fg = tc.effectiveFg
@@ -249,7 +251,8 @@ class TerminalBuffer(
             if (fg != spanColor || bg != spanBgColor ||
                 tc.isBold != spanBold || tc.isUnderline != spanUnderline ||
                 tc.isInverse != spanInverse || tc.isDim != spanDim ||
-                tc.isItalic != spanItalic || tc.isStrikethrough != spanStrikethrough
+                tc.isItalic != spanItalic || tc.isStrikethrough != spanStrikethrough ||
+                tc.hyperlinkUrl != spanHyperlinkUrl
             ) {
                 if (currentSpanText.isNotEmpty()) {
                     spans.add(
@@ -263,6 +266,7 @@ class TerminalBuffer(
                             isDim = spanDim,
                             isItalic = spanItalic,
                             isStrikethrough = spanStrikethrough,
+                            hyperlinkUrl = spanHyperlinkUrl,
                         )
                     )
                     currentSpanText = StringBuilder()
@@ -275,6 +279,7 @@ class TerminalBuffer(
                 spanDim = tc.isDim
                 spanItalic = tc.isItalic
                 spanStrikethrough = tc.isStrikethrough
+                spanHyperlinkUrl = tc.hyperlinkUrl
             }
             currentSpanText.append(tc.char)
         }
@@ -291,6 +296,7 @@ class TerminalBuffer(
                     isDim = spanDim,
                     isItalic = spanItalic,
                     isStrikethrough = spanStrikethrough,
+                    hyperlinkUrl = spanHyperlinkUrl,
                 )
             )
         }
